@@ -2,7 +2,7 @@ require 'tadb'
 
 module Persistible
   # punto 1 - a
-  private def id=(id)
+  def id=(id)
     @id = id
   end
   def cargar_con_hash(hash)
@@ -54,9 +54,12 @@ module Persistible
     self.borrar_metodo_id
   end
 
-  private def borrar_tabla
+  private
+  def borrar_tabla
     self.class.table.delete(@id)
   end
+
+  private :id=
 
 end
 
@@ -151,7 +154,6 @@ class Main
   persona3.save!
 
   puts Person.all_instances
-
 
   #puts Person.table.instance_variable_get(:@name)
 
