@@ -1,144 +1,162 @@
 require 'tadb'
 
+class ObjectNotFound < Exception
+  attr_accessor :objeto
+
+  def initialize(objeto)
+    self.objeto = objeto
+  end
+end
+
 module Persistible
-  # punto 1 - a
+  # punto 1
+  attr_accessor :atributos_persistibles
+
   def self.included(base)
     base.extend(ClasePersistible)
   end
 
-  def table
-    @table.nil? ? @table = TADB::DB.table(self.to_s) : @table
-  end
-  def self.has_one(tipo, descripcion)
-
-    self.define_method(descripcion[:named]) do
-      atributo = self.instance_variable_get("@"+descripcion[:named].to_s)
-      atributo.valor
-    end
-
-    self.define_method(descripcion[:named].to_s+"=") do |valor|
-      self.instance_variable_set(("@"+descripcion[:named].to_s),AtributoPersistible.new(tipo, valor))
-    end
-
+  def initialize()
+   self.atributos_persistibles = {}
   end
 
-  def self.all_instances
-    lista_hash = self.table.entries
-
-    lista_hash.map! do |hash|
-      instancia = self.new
-      instancia.cargar_con_hash(hash)
-    end
-
-    lista_hash
-  end
-
-  def id=(id)
-    @id = id
-  end
-  def cargar_con_hash(hash)
-    self.definir_metodo_id
-    hash.each do |key, value|
-      self.send(key.to_s+"=", value)
-    end
-    self
-  end
   def save!
 
-    atributos_persisitbles = self.instance_variables.select do
-    |atributo| self.instance_variable_get(atributo).is_a? AtributoPersistible
-    end
-
-    hash_values = {}
-
-    atributos_persisitbles.each do |atributo|
-      hash_values[atributo.to_s.gsub("@","").to_sym] = self.instance_variable_get(atributo).valor
+    # En caso de que ya haya hecho un save previo, sobreescribo el registro en la tabla
+    if self.respond_to?(:id)
+      self.borrar_tabla
     end
 
     #puts hash_values
-
-    self.definir_metodo_id
-
-    self.id= self.class.table.insert(hash_values)
-
+    id = self.class.table.insert(self.atributos_persistibles)
+    self.definir_metodo_id(id)
+    self
   end
 
-
-
-  def definir_metodo_id
+  def definir_metodo_id(id)
+    self.atributos_persistibles[:id] = id
     self.define_singleton_method("id") do
-      @id
+      self.atributos_persistibles[:id]
     end
   end
 
   def borrar_metodo_id
+    self.atributos_persistibles[:id] = nil
     self.singleton_class.remove_method("id")
   end
 
   def refresh!
-    self.borrar_tabla
-    self.save!
+    raise ObjectNotFound.new(self) unless self.respond_to?(:id)
+    self.atributos_persistibles = self.class.find_entries_by(:id, self.id).first
+    self
   end
-
   def forget!
     self.borrar_tabla
     self.borrar_metodo_id
   end
 
-  private
-  def borrar_tabla
-    self.class.table.delete(@id)
+  def llenar(hash)
+    self.atributos_persistibles = hash.select{|key, value| self.has_key?(key)}
+    self.definir_metodo_id(hash[:id])
+    self
   end
 
-  private :id=
+  # punto 2
+  def has_key?(key)
+    self.class.has_key?(key)
+  end
+
+  private
+  def borrar_tabla
+    self.class.table.delete(atributos_persistibles[:id])
+  end
 
 end
+
 module ClasePersistible
+
+  attr_reader :tipo_atributos
 
   def table
     @table.nil? ? @table = TADB::DB.table(self.to_s) : @table
   end
+
   def has_one(tipo, descripcion)
 
-    self.define_method(descripcion[:named]) do
-      atributo = self.instance_variable_get("@"+descripcion[:named].to_s)
-      atributo.valor
+    self.tipo_atributos ||= {:id => nil}
+    nombre_atributo = descripcion[:named]
+
+    self.define_method(nombre_atributo) do
+      self.atributos_persistibles[nombre_atributo]
     end
 
-    self.define_method(descripcion[:named].to_s+"=") do |valor|
-      self.instance_variable_set(("@"+descripcion[:named].to_s),AtributoPersistible.new(tipo, valor))
+    self.define_method(nombre_atributo.to_s+"=") do |valor|
+      self.atributos_persistibles[nombre_atributo] = valor
     end
 
+    self.tipo_atributos[nombre_atributo] = tipo
+  end
+
+  def has_key?(key)
+    self.tipo_atributos ||= {}
+    self.tipo_atributos.key?(key)
+  end
+
+  def all_entries
+    self.table.entries
   end
 
   def all_instances
-    lista_hash = self.table.entries
 
+    lista_hash = self.all_entries
     lista_hash.map! do |hash|
       instancia = self.new
-      instancia.cargar_con_hash(hash)
+      instancia.llenar(hash)
     end
-
     lista_hash
   end
 
-end
-class AtributoPersistible
-  attr_accessor :tipo, :valor
-  def initialize(tipo, valor)
-    @tipo = tipo
-    @valor = valor
+  def find_entries_by(atributo_sym,valor)
+    self.all_entries.select do |hash|
+      hash[atributo_sym] == valor
+    end
   end
 
-  def valor= (valor)
-    @valor = valor
+  def find_by(atributo_sym,valor)
+    self.all_instances.select do |instancia|
+      instancia.atributos_persistibles[atributo_sym] == valor
+    end
+
   end
 
+  def responds_to_find_by?(nombre_metodo)
+    sym = nombre_metodo.to_s.sub('find_by_', '').to_sym
+    nombre_metodo.to_s.start_with?('find_by_') && self.has_key?(sym)
+  end
+
+  def method_missing(method_name, *args, &block)
+    sym = method_name.to_s.sub('find_by_', '').to_sym
+    if responds_to_find_by?(method_name)
+      self.find_by(sym, args[0])
+    else
+      super
+    end
+  end
+
+  def respond_to_missing?(method_name, include_private = false)
+    responds_to_find_by?(method_name) || super
+  end
+
+  private
+  attr_writer :tipo_atributos
+
 end
+
 
 module Boolean
 
 end
+
 class Person
 
   include Persistible
@@ -153,26 +171,7 @@ end
 
 
 class Main
-  persona1 = Person.new
-  persona1.first_name= "Thomy"
-  persona1.last_name= "Pereyra"
-
-  persona2 = Person.new
-  persona2.first_name= "Milagros"
-  persona2.last_name= "Pereyra"
-
-  persona3 = Person.new
-  persona3.first_name= "Mateo"
-  persona3.last_name= "Pereyra"
-
-  #puts Person.table
-
-  persona1.save!
-  persona2.save!
-  persona3.save!
-
-  puts Person.all_instances
-
-  #puts Person.table.instance_variable_get(:@name)
-
+  thomi = Person.new
+  thomi.first_name = "Thomi"
+  puts Person.find_by(:first_name,"Thomi")
 end
