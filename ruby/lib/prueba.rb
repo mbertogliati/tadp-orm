@@ -2,6 +2,37 @@ require 'tadb'
 
 module Persistible
   # punto 1 - a
+  def self.included(base)
+    base.extend(ClasePersistible)
+  end
+
+  def table
+    @table.nil? ? @table = TADB::DB.table(self.to_s) : @table
+  end
+  def self.has_one(tipo, descripcion)
+
+    self.define_method(descripcion[:named]) do
+      atributo = self.instance_variable_get("@"+descripcion[:named].to_s)
+      atributo.valor
+    end
+
+    self.define_method(descripcion[:named].to_s+"=") do |valor|
+      self.instance_variable_set(("@"+descripcion[:named].to_s),AtributoPersistible.new(tipo, valor))
+    end
+
+  end
+
+  def self.all_instances
+    lista_hash = self.table.entries
+
+    lista_hash.map! do |hash|
+      instancia = self.new
+      instancia.cargar_con_hash(hash)
+    end
+
+    lista_hash
+  end
+
   def id=(id)
     @id = id
   end
@@ -62,20 +93,6 @@ module Persistible
   private :id=
 
 end
-
-class AtributoPersistible
-  attr_accessor :tipo, :valor
-  def initialize(tipo, valor)
-    @tipo = tipo
-    @valor = valor
-  end
-
-  def valor= (valor)
-    @valor = valor
-  end
-
-end
-
 module ClasePersistible
 
   def table
@@ -106,20 +123,21 @@ module ClasePersistible
   end
 
 end
+class AtributoPersistible
+  attr_accessor :tipo, :valor
+  def initialize(tipo, valor)
+    @tipo = tipo
+    @valor = valor
+  end
 
-
-module Boolean
+  def valor= (valor)
+    @valor = valor
+  end
 
 end
 
-class Class
-  def include(*args)
-    if args.include? Persistible
-      #Le setea la singleton_class
-      self.extend(ClasePersistible)
-    end
-    super
-  end
+module Boolean
+
 end
 class Person
 
