@@ -50,6 +50,7 @@ module Persistible
     self.atributos_persistibles = self.class.find_entries_by(:id, self.id).first
     self
   end
+
   def forget!
     self.borrar_tabla
     self.borrar_metodo_id
@@ -98,7 +99,6 @@ module ClasePersistible
   end
 
   def has_key?(key)
-    self.tipo_atributos ||= {}
     self.tipo_atributos.key?(key)
   end
 
@@ -107,7 +107,6 @@ module ClasePersistible
   end
 
   def all_instances
-
     lista_hash = self.all_entries
     lista_hash.map! do |hash|
       instancia = self.new
@@ -123,27 +122,24 @@ module ClasePersistible
   end
 
   def find_by(atributo_sym,valor)
-    self.all_instances.select do |instancia|
-      instancia.send(atributo_sym) == valor
-    end
-
+    self.all_instances.select { |instancia| instancia.send(atributo_sym) == valor }
   end
 
   def responds_to_find_by?(nombre_metodo)
-    nombre_metodo.start_with?('find_by_') && self.method(nombre_metodo.to_sym).arity == 1
+    nombre_metodo.start_with?('find_by_') && self.instance_method(nombre_metodo.sub('find_by_', '').to_sym).arity == 0
   end
 
-  def method_missing(method_name, *args, &block)
-    sym = method_name.to_s.sub('find_by_', '').to_sym
-    if responds_to_find_by?(method_name)
-      self.find_by(sym, args[0])
+  def method_missing(sym, *args, &block)
+    if responds_to_find_by?(sym.to_s)
+      nombre_metodo = sym.to_s.sub('find_by_', '').to_sym
+      self.find_by(nombre_metodo, args[0])
     else
       super
     end
   end
 
-  def respond_to_missing?(method_name, include_private = false)
-    responds_to_find_by?(method_name) || super
+  def respond_to_missing?(nombre_metodo, include_private = false)
+    responds_to_find_by?(nombre_metodo) || super
   end
 
   private
@@ -156,8 +152,22 @@ module Boolean
 
 end
 
-class Person
+################ Clases persistibles ###############
 
+class Student
+  include Persistible
+
+  has_one String, named: :full_name
+  #has_one Nota, named: :grade
+end
+
+class Nota
+  include Persistible
+
+  has_one Numeric, named: :value
+end
+
+class Person
   include Persistible
 
   has_one String, named: :first_name
@@ -165,12 +175,14 @@ class Person
   has_one Numeric, named: :age
   has_one Boolean, named: :admin
 
+  def mayor
+    self.age > 18
+  end
+
 end
-
-
 
 class Main
   thomi = Person.new
   thomi.first_name = "Thomi"
-  puts Person.find_by(:first_name,"Thomi").to_s
+
 end
