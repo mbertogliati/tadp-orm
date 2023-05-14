@@ -124,14 +124,13 @@ module ClasePersistible
 
   def find_by(atributo_sym,valor)
     self.all_instances.select do |instancia|
-      instancia.atributos_persistibles[atributo_sym] == valor
+      instancia.send(atributo_sym) == valor
     end
 
   end
 
   def responds_to_find_by?(nombre_metodo)
-    sym = nombre_metodo.to_s.sub('find_by_', '').to_sym
-    nombre_metodo.to_s.start_with?('find_by_') && self.has_key?(sym)
+    nombre_metodo.start_with?('find_by_') && self.method(nombre_metodo.to_sym).arity == 1
   end
 
   def method_missing(method_name, *args, &block)
@@ -173,5 +172,5 @@ end
 class Main
   thomi = Person.new
   thomi.first_name = "Thomi"
-  puts Person.find_by(:first_name,"Thomi")
+  puts Person.find_by(:first_name,"Thomi").to_s
 end
