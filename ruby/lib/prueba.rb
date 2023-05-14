@@ -56,8 +56,19 @@ module Persistible
     self.borrar_metodo_id
   end
 
+  def to_object(key,value)
+    hash_tipo = self.class.tipo_atributos
+    if hash_tipo[key].is_a? Persistible
+      hash_tipo[key].find_by_id(value).first
+    else
+      value
+    end
+  end
+
   def llenar(hash)
-    self.atributos_persistibles = hash.select{|key, value| self.has_key?(key)}
+    self.atributos_persistibles = hash.select{|key, value| self.has_key?(key)}.map do |key,value|
+      [key,self.to_object(key,value)]
+    end
     self.definir_metodo_id(hash[:id])
     self
   end
@@ -69,7 +80,7 @@ module Persistible
 
   private
   def borrar_tabla
-    self.class.table.delete(atributos_persistibles[:id])
+    self.class.table.delete(self.id)
   end
 
 end
@@ -108,11 +119,11 @@ module ClasePersistible
 
   def all_instances
     lista_hash = self.all_entries
+
     lista_hash.map! do |hash|
       instancia = self.new
       instancia.llenar(hash)
     end
-    lista_hash
   end
 
   def find_entries_by(atributo_sym,valor)
@@ -154,18 +165,19 @@ end
 
 ################ Clases persistibles ###############
 
-class Student
-  include Persistible
-
-  has_one String, named: :full_name
-  #has_one Nota, named: :grade
-end
-
 class Nota
   include Persistible
 
   has_one Numeric, named: :value
 end
+
+class Student
+  include Persistible
+
+  has_one String, named: :full_name
+  has_one Nota, named: :grade
+end
+
 
 class Person
   include Persistible
