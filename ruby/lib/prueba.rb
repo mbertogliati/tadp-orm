@@ -62,12 +62,15 @@ module Persistible
 
   def save!
     # En caso de que ya haya hecho un save previo, sobreescribo el registro en la tabla
-    if self.respond_to?(:id)
+    if self.id != nil
       self.borrar_entrada
     end
 
-    #puts hash_values
-    self.atributos_persistibles[:id] = self.class.table.insert(self.atributos_persistibles)
+    diccionario_para_guardar = self.atributos_persistibles.to_h do |key,value|
+      [key,self.guardar_y_convertir_a_valor(value)]
+    end
+
+    self.atributos_persistibles[:id] = self.class.insertar(diccionario_para_guardar)
   end
 
   def refresh!
@@ -81,18 +84,9 @@ module Persistible
     self.atributos_persistibles[:id] = nil
   end
 
-  def to_object(key,value)
-    hash_tipo = self.class.diccionario_de_tipos
-    if hash_tipo[key].is_a? Persistible
-      hash_tipo[key].find_by_id(value).first
-    else
-      value
-    end
-  end
-
   def llenar(hash)
-    self.atributos_persistibles = hash.select{|key, value| self.has_key?(key)}.map do |key,value|
-      [key,self.to_object(key,value)]
+    self.atributos_persistibles = hash.select{|key, value| self.has_key?(key)}.to_h do |key,value|
+      [key,self.convertir_valor_a_objeto(key,value)]
     end
     self
   end
@@ -104,8 +98,24 @@ module Persistible
 
   private
   def borrar_entrada
-    raise PersistibleNoGuardado.new(self) unless self.respond_to?(:id)
+    self.atributos_persistibles[:id] = nil
     self.class.table.delete(self.id)
+  end
+
+  def guardar_y_convertir_a_valor(objeto)
+    if objeto.is_a? Persistible
+      objeto.save!
+    else
+      objeto
+    end
+  end
+  def convertir_valor_a_objeto(key,valor)
+    tipo = self.class.diccionario_de_tipos[key]
+    if tipo.ancestors.include? Persistible
+      tipo.find_by_id(valor).first
+      else
+      valor
+    end
   end
 
 end
@@ -136,6 +146,27 @@ module ClaseDePersistible
     self.diccionario_de_tipos[nombre_atributo] = tipo
   end
 
+  def has_many(tipo, descripcion)
+
+    tabla_intermedia = Persistible.new
+    tabla_intermedia.define_singleton_method(:to_s) do
+      self.to_s+"_"+tipo.to_s
+    end
+    tabla_intermedia.has_one(tipo, named: tipo.to_s)
+    tabla_intermedia.has_one(self, named: self.to_s)
+
+
+    array = []
+    array.push(tipo)
+
+    array.define_singleton_method(:save!) do
+      self.each do |elemento|
+        elemento.save!
+      end
+    end
+
+  end
+
   def has_key?(key)
     self.diccionario_de_tipos.key?(key)
   end
@@ -150,6 +181,10 @@ module ClaseDePersistible
     self.all_entries.select do |hash|
       hash[atributo_sym] == valor
     end
+  end
+
+  def insertar(valor)
+    self.table.insert(valor)
   end
 
   private
