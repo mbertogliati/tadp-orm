@@ -9,41 +9,42 @@ class PersistibleNoGuardado < Exception
   end
 end
 
+module ClassMethods
+  def all_instances
+    lista_hash = self.all_entries
+
+    lista_hash.map! do |hash|
+      instancia = self.new
+      instancia.llenar(hash)
+    end
+  end
+
+  def find_by(atributo_sym,valor)
+    self.all_instances.select { |instancia| instancia.send(atributo_sym) == valor }
+  end
+
+  def responds_to_find_by?(nombre_metodo)
+    nombre_metodo.start_with?('find_by_') && self.instance_method(nombre_metodo.sub('find_by_', '').to_sym).arity == 0
+  end
+
+  def method_missing(sym, *args, &block)
+    if responds_to_find_by?(sym.to_s)
+      nombre_metodo = sym.to_s.sub('find_by_', '').to_sym
+      self.find_by(nombre_metodo, args[0])
+    else
+      super
+    end
+  end
+
+  def respond_to_missing?(nombre_metodo, include_private = false)
+    responds_to_find_by?(nombre_metodo) || super
+  end
+
+end
+
+
 module Persistible
   # punto 1
-
-  module ClassMethods
-    def all_instances
-      lista_hash = self.all_entries
-
-      lista_hash.map! do |hash|
-        instancia = self.new
-        instancia.llenar(hash)
-      end
-    end
-
-    def find_by(atributo_sym,valor)
-      self.all_instances.select { |instancia| instancia.send(atributo_sym) == valor }
-    end
-
-    def responds_to_find_by?(nombre_metodo)
-      nombre_metodo.start_with?('find_by_') && self.instance_method(nombre_metodo.sub('find_by_', '').to_sym).arity == 0
-    end
-
-    def method_missing(sym, *args, &block)
-      if responds_to_find_by?(sym.to_s)
-        nombre_metodo = sym.to_s.sub('find_by_', '').to_sym
-        self.find_by(nombre_metodo, args[0])
-      else
-        super
-      end
-    end
-
-    def respond_to_missing?(nombre_metodo, include_private = false)
-      responds_to_find_by?(nombre_metodo) || super
-    end
-
-  end
 
   attr_accessor :atributos_persistibles
 
@@ -109,6 +110,7 @@ module Persistible
       objeto
     end
   end
+
   def convertir_valor_a_objeto(key,valor)
     tipo = self.class.diccionario_de_tipos[key]
     if tipo.ancestors.include? Persistible
@@ -147,24 +149,45 @@ module ClaseDePersistible
   end
 
   def has_many(tipo, descripcion)
+    nombre_lista = descripcion[:named]
 
-    tabla_intermedia = Persistible.new
-    tabla_intermedia.define_singleton_method(:to_s) do
-      self.to_s+"_"+tipo.to_s
+    self.diccionario_de_tipos[nombre_lista] = [tipo]
+
+    #Student_Materia
+    tabla_intermedia = crear_tabla_intermedia(tipo)
+
+    # Person {nombre: santi, id: 1, materias: [1, 2, 3]}
+    # Person_materias {1,1}{1,2}{1,3}
+    # Materia {id:1, nombre: matematica}{id:2, nombre:lengua}
+
+
+  end
+
+  def has_many2(tipo, descripcion)
+    nombre_atributo = descripcion[:named]
+
+    define_method(nombre_atributo) do
+      # Obtener las entradas relacionadas desde la tabla intermedia
+      tabla_intermedia = self.class.table_intermedia(tipo)
+      ids = tabla_intermedia.find_entries_by(self.class.to_s.downcase.to_sym, self.id).map { |hash| hash[:id] }
+      tipo.find_entries_by(:id, ids)
     end
-    tabla_intermedia.has_one(tipo, named: tipo.to_s)
-    tabla_intermedia.has_one(self, named: self.to_s)
 
-
-    array = []
-    array.push(tipo)
-
-    array.define_singleton_method(:save!) do
-      self.each do |elemento|
-        elemento.save!
+    define_method(nombre_atributo.to_s + "=") do |valores|
+      # Guardar las entradas relacionadas en la tabla intermedia
+      tabla_intermedia = self.class.tabla_intermedia(tipo)
+      tabla_intermedia.delete_entries_by(self.class.to_s.downcase.to_sym, self.id)
+      valores.each do |valor|
+        tabla_intermedia.insert({ self.class.to_s.downcase.to_sym => self.id, tipo.to_s.downcase.to_sym => valor.id })
       end
     end
+  end
 
+
+  def crear_tabla_intermedia(tipo)
+    tabla_intermedia = TADB::DB.table("#{self.to_s.downcase}_#{tipo.to_s.downcase}")
+
+    tabla_intermedia
   end
 
   def has_key?(key)
@@ -205,9 +228,16 @@ class Nota
   has_one Numeric, named: :value
 end
 
+class Materia
+  include Persistible
+
+  has_one String, named: :nombre
+end
+
 class Student
   include Persistible
 
+  has_many Materia, named: :materias
   has_one String, named: :full_name
   has_one Nota, named: :grade
 end
