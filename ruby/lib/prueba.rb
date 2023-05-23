@@ -120,19 +120,22 @@ module Persistible
   def validate!
     atributos_simples_validos =
     self.atributos_persistibles.map do |key, value|
-      bool = value&.class == self.class.diccionario_de_tipos[key]
-      bool
-  end.all?
-
+      self.validar_tipos(key, value)
+    end.all?
     atributos_many_validos =
-      self.atributos_has_many.map do |key, value|
+    self.atributos_has_many.map do |key, value|
       value.all? do |elem|
-        elem.class == self.class.diccionario_de_tipos[key]
+        self.validar_tipos(key, elem)
       end
     end.all?
+
     unless atributos_simples_validos && atributos_many_validos
       raise PersistibleInvalido.new(self)
     end
+  end
+
+  def validar_tipos(key, value)
+    value.is_a? self.class.diccionario_de_tipos[key]
   end
 
   def llenar(hash) #################################################################################
