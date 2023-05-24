@@ -39,6 +39,9 @@ module Persistible
   def self.defaults
     {}
   end
+  def self.validadores
+    {}
+  end
 
   def delete_entries_by(atributo_sym, valor)
     self.table.delete_if { |hash| hash[atributo_sym] == valor }
@@ -117,23 +120,22 @@ module Persistible
   end
   #TODO: Anda mal el validate!
   def validate!
-    atributos_simples_validos =
-    self.atributos_persistibles.map do |key, value|
-      unless key == :id
-        self.validar_tipos(key, value)
-      else
-        true
-      end
 
-    end.all?
-    atributos_many_validos =
-    self.atributos_has_many.map do |key, value|
-      value.all? do |elem|
-        if elem.is_a? Persistible
-        elem.validate!
+    atributos_validos = self.class.diccionario_de_tipos.map do |key, _|
+        if self.class.tablas_intermedias.has_key?(key)
+          #Validar array
+          unless self.atributos_has_many[key].nil?
+            self.atributos_has_many[key].all? do |elem|
+              self.validar_tipos(key, elem) && self.ejecutar_validadores(key, elem)
+            end
+          else
+            true
+          end
+        else
+          #Validar simple
+          valor = self.atributos_persistibles[key]
+          self.validar_tipos(key, valor) && self.ejecutar_validadores(key, valor)
         end
-        self.validar_tipos(key, elem)
-      end
     end.all?
 
     unless atributos_simples_validos && atributos_many_validos
@@ -142,7 +144,17 @@ module Persistible
   end
 
   def validar_tipos(key, value)
-    value.is_a? self.class.diccionario_de_tipos[key]
+    value.nil? || (value.is_a? self.class.diccionario_de_tipos[key])
+  end
+
+  def ejecutar_validadores(key,valor)
+    if( self.class.validadores[key] != nil)
+      self.class.validadores[key].map do |validador|
+        validador.validar(atributos_persistibles[valor])
+      end.all?
+    else
+      true
+    end
   end
 
   def llenar(hash) #################################################################################
@@ -273,7 +285,7 @@ end
 
 module ClaseDePersistible
 
-  attr_reader :diccionario_de_tipos,:tablas_intermedias,:table,:defaults
+  attr_reader :diccionario_de_tipos,:tablas_intermedias,:table,:defaults,:validadores
 
   @@dummy_table = Object.new
   @@dummy_table.define_singleton_method(:entries) { [] }
@@ -294,7 +306,7 @@ module ClaseDePersistible
     end
     quien_llama.instance_variable_set(:@diccionario_de_tipos, quien_llama.ancestors[1].diccionario_de_tipos.clone)
     quien_llama.instance_variable_set(:@tablas_intermedias, quien_llama.ancestors[1].tablas_para_descendiente(quien_llama).clone)
-    quien_llama.instance_variable_set(:@validadores, {}) #{:nombre_atributo => [validador1,validador2]
+    quien_llama.instance_variable_set(:@validadores, quien_llama.ancestors[1].validadores.clone) #{:nombre_atributo => [validador1,validador2]
     quien_llama.instance_variable_set(:@descendientes, [])
     quien_llama.instance_variable_set(:@table, tabla_asignada)
     quien_llama.instance_variable_set(:@defaults, quien_llama.ancestors[1].defaults.clone)
@@ -336,7 +348,18 @@ module ClaseDePersistible
   end
 
 
+  def crear_validadores(nombre_atributo,parametros)
+    if self.diccionario_de_tipos[nombre_atributo] != Numeric && (parametros.has_key?(:from) || parametros.has_key?(:to))
+      raise "No se puede validar un atributo no numerico con from o to"
+    end
 
+    self.validadores[nombre_atributo] = Validador.new(proc{ self <= parametros[:to] }) if parametros.has_key?(:to)
+    self.validadores[nombre_atributo] = Validador.new(proc{ self >= parametros[:from] }) if parametros.has_key?(:from)
+
+    self.validadores[nombre_atributo] = Validador.new(parametros[:validate]) if parametros.has_key?(:validate)
+    self.validadores[nombre_atributo] = Validador.new(proc{!self.blank? && !self.nil?}) if parametros.has_key?(:no_blank)
+
+  end
 
   def find_entries_by(atributo_sym,valor)
     self.all_entries.select do |hash|
@@ -438,7 +461,14 @@ module ClaseDePersistible
 
 end
 
-
+class Validador
+  def initialize(bloque)
+    @bloque = bloque
+  end
+  def validar(valor)
+    valor.instance_exec(&@bloque)
+  end
+end
 
 module Boolean
 
@@ -484,7 +514,7 @@ end
 
 class Student
   include Person # person.included(self)
-  has_one Grade, named: :grade
+  has_one Grade, named: :grade, validate: proc { value >= 6 }
 end
 
 class AsesinoSerial < Student
@@ -528,7 +558,7 @@ class Main
   #estudiante.full_name = "Pedro Pascal"
   estudiante.especie = "Humano"
   estudiante.grade = Grade.new
-  estudiante.grade.value = 10
+  estudiante.grade.value = 5
   #estudiante.objetos = ["lapiz","cuaderno"]
   estudiante.save!
   #estudiante.save!
