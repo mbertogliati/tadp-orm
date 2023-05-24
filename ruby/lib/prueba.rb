@@ -36,6 +36,9 @@ module Persistible
   def self.tablas_para_descendiente(base)
     {}
   end
+  def self.defaults
+    {}
+  end
 
   def delete_entries_by(atributo_sym, valor)
     self.table.delete_if { |hash| hash[atributo_sym] == valor }
@@ -53,6 +56,7 @@ module Persistible
 
   def save!
     # En caso de que ya haya hecho un save previo, sobreescribo el registro en la tabla
+    self.set_defaults
     self.validate!
 
     if self.id != nil
@@ -64,6 +68,7 @@ module Persistible
     end
 
     self.atributos_persistibles[:id] = self.class.insertar(diccionario_para_guardar)
+
 
 
     atributos_has_many.each do |key, _|
@@ -81,8 +86,8 @@ module Persistible
 
     if values.length > 0
 
-      ids_elementos_lista = values.map do |element|
-        self.guardar_y_convertir_a_valor(element)
+      ids_elementos_lista = values.map do |value|
+        self.guardar_y_convertir_a_valor(value)
       end
 
       lista_hash_insertar = get_lista_hashes(ids_elementos_lista,key_lista)
@@ -124,7 +129,9 @@ module Persistible
     atributos_many_validos =
     self.atributos_has_many.map do |key, value|
       value.all? do |elem|
+        if elem.is_a? Persistible
         elem.validate!
+        end
         self.validar_tipos(key, elem)
       end
     end.all?
@@ -181,6 +188,16 @@ module Persistible
   end
 
   private
+
+  def set_defaults
+    self.class.diccionario_de_tipos.map do |key, value|
+      objeto = self.atributos_persistibles[key]
+      if objeto.nil? && !self.class.defaults[key].nil?
+        atributos_persistibles[key] = self.class.defaults[key]
+      end
+    end
+  end
+
   def borrar_entrada
     self.class.table.delete(self.id)
   end
@@ -256,7 +273,7 @@ end
 
 module ClaseDePersistible
 
-  attr_reader :diccionario_de_tipos,:tablas_intermedias,:table
+  attr_reader :diccionario_de_tipos,:tablas_intermedias,:table,:defaults
 
   @@dummy_table = Object.new
   @@dummy_table.define_singleton_method(:entries) { [] }
@@ -275,25 +292,24 @@ module ClaseDePersistible
       self.agregar_descendiente(base)
       super(base)
     end
-    quien_llama.instance_variable_set(:@diccionario_de_tipos, quien_llama.ancestors[1].diccionario_de_tipos)
-    quien_llama.instance_variable_set(:@tablas_intermedias, quien_llama.ancestors[1].tablas_para_descendiente(quien_llama))
+    quien_llama.instance_variable_set(:@diccionario_de_tipos, quien_llama.ancestors[1].diccionario_de_tipos.clone)
+    quien_llama.instance_variable_set(:@tablas_intermedias, quien_llama.ancestors[1].tablas_para_descendiente(quien_llama).clone)
     quien_llama.instance_variable_set(:@validadores, {}) #{:nombre_atributo => [validador1,validador2]
-    #hipotetico validate
-    #por cada atributo:
-    #  #  por cada validador: validador.validar(atributo)
     quien_llama.instance_variable_set(:@descendientes, [])
     quien_llama.instance_variable_set(:@table, tabla_asignada)
-
+    quien_llama.instance_variable_set(:@defaults, quien_llama.ancestors[1].defaults.clone)
   end
 
-  def has_many(tipo, parametros)
+  def has_many(tipo, *params)
+    parametros = params.reduce({}, :merge)
     nombre_lista = parametros[:named]
+    defaults[nombre_lista] = parametros[:default]
     self.diccionario_de_tipos[nombre_lista] = tipo
     self.crear_tabla_intermedia(nombre_lista)
 
     # Definir el getter para acceder a la lista de objetos relacionados TODO: Logica repetida
     self.define_method(nombre_lista) do
-      self.atributos_has_many[nombre_lista] ||= []
+      self.atributos_has_many[nombre_lista] ||= parametros[:default] ? parametros[:default].dup : []
       self.atributos_has_many[nombre_lista]
     end
 
@@ -302,10 +318,13 @@ module ClaseDePersistible
     end
 
   end
-  def has_one(tipo, parametros)
+  def has_one(tipo, *params)
+    parametros = params.reduce({}, :merge)
     nombre_atributo = parametros[:named]
+    defaults[nombre_atributo] = parametros[:default]
 
     self.define_method(nombre_atributo) do
+      self.atributos_persistibles[nombre_atributo] ||= parametros[:default]
       self.atributos_persistibles[nombre_atributo]
     end
 
@@ -436,7 +455,7 @@ end
 
 
 # No existe una tabla para las Personas, porque es un módulo.
-class Grade
+class Grade #TODO: Verificar que la repeticion de atributos sea destructiva (que se pisen)
   include Persistible
   has_one Numeric, named: :value
   #has_one Array, named: :comments #TODO: Implementar una Excepcion propia para cuando un atributo no es ni persitible ni primitivo
@@ -458,7 +477,7 @@ end
 module Person
   include LivingBeing  # persistible.included(self)
   has_many String, named: :objetos
-  has_one String, named: :full_name
+  has_one String, named: :full_name, default: "Juan Perez"
 end
 
 #Person.all_instances ===> todos los students y todos los assistant professors
@@ -481,10 +500,6 @@ class AssistantProfessor < Student
   has_one String, named: :type
 end
 
-
-
-
-
 class Main
 
 
@@ -503,14 +518,14 @@ class Main
   alien2.save!
 
   profesor = AssistantProfessor.new
-  profesor.full_name = "Nico"
+  #profesor.full_name = "Nico"
   profesor.especie = "Humano"
   profesor.type = "Capo"
   profesor.objetos = ["cuchara","cafe"]
   profesor.save!
 
   estudiante = Student.new
-  estudiante.full_name = "Pedro Pascal"
+  #estudiante.full_name = "Pedro Pascal"
   estudiante.especie = "Humano"
   estudiante.grade = Grade.new
   estudiante.grade.value = 10
