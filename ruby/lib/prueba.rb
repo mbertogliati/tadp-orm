@@ -43,6 +43,14 @@ module Persistible
     {}
   end
 
+  def ==(otro_objeto)
+    if !self.id.nil? && (otro_objeto.is_a? Persistible) && !otro_objeto.id.nil?
+      self.id == otro_objeto.id
+    else
+      super
+    end
+  end
+
   def delete_entries_by(atributo_sym, valor)
     self.table.delete_if { |hash| hash[atributo_sym] == valor }
   end
@@ -120,17 +128,13 @@ module Persistible
   end
   #TODO: Anda mal el validate!
   def validate!
-
+    #TODO: Logica Repetida
     atributos_validos = self.class.diccionario_de_tipos.map do |key, _|
         if self.class.tablas_intermedias.has_key?(key)
           #Validar array
-          unless self.atributos_has_many[key].nil?
-            self.atributos_has_many[key].all? do |elem|
-              self.validar_tipos(key, elem) && self.ejecutar_validadores(key, elem)
-            end
-          else
-            true
-          end
+          valor = atributos_has_many[key]
+          valor ||= []
+          self.validar_tipos(key, valor) && self.ejecutar_validadores(key,valor)
         else
           #Validar simple
           valor = self.atributos_persistibles[key]
@@ -144,14 +148,23 @@ module Persistible
   end
 
   def validar_tipos(key, value)
+    if value.is_a? Array
+      value.all? do |elem|
+        !elem.nil? && (elem.is_a? self.class.diccionario_de_tipos[key])
+      end
+      else
     value.nil? || (value.is_a? self.class.diccionario_de_tipos[key])
+    end
   end
 
   def ejecutar_validadores(key,valor)
-    if( self.class.validadores[key] != nil)
-      self.class.validadores[key].map do |validador|
-        validador.validar(atributos_persistibles[valor])
-      end.all?
+    unless( self.class.validadores[key].empty?)
+      self.class.validadores[key].all? do |validador|
+        if valor.is_a? Persistible
+          valor.validate!
+        end
+        validador.validar(valor)
+      end
     else
       true
     end
@@ -317,6 +330,10 @@ module ClaseDePersistible
     nombre_lista = parametros[:named]
     defaults[nombre_lista] = parametros[:default]
     self.diccionario_de_tipos[nombre_lista] = tipo
+
+    self.crear_validadores(nombre_lista,parametros)
+
+
     self.crear_tabla_intermedia(nombre_lista)
 
     # Definir el getter para acceder a la lista de objetos relacionados TODO: Logica repetida
@@ -334,6 +351,9 @@ module ClaseDePersistible
     parametros = params.reduce({}, :merge)
     nombre_atributo = parametros[:named]
     defaults[nombre_atributo] = parametros[:default]
+    self.diccionario_de_tipos[nombre_atributo] = tipo
+
+    self.crear_validadores(nombre_atributo,parametros)
 
     self.define_method(nombre_atributo) do
       self.atributos_persistibles[nombre_atributo] ||= parametros[:default]
@@ -344,20 +364,23 @@ module ClaseDePersistible
       self.atributos_persistibles[nombre_atributo] = valor
     end
 
-    self.diccionario_de_tipos[nombre_atributo] = tipo
+
   end
 
 
   def crear_validadores(nombre_atributo,parametros)
-    if self.diccionario_de_tipos[nombre_atributo] != Numeric && (parametros.has_key?(:from) || parametros.has_key?(:to))
-      raise "No se puede validar un atributo no numerico con from o to"
+
+    self.validadores[nombre_atributo] = []
+    self.validadores[nombre_atributo] << ValidadorNoBlank.new if parametros.has_key?(:no_blank)
+
+    if (self.diccionario_de_tipos[nombre_atributo] != Numeric) && (parametros.has_key?(:from) || parametros.has_key?(:to))
+      raise "No se puede validar un atributo no numerico con from o to" #TODO
     end
 
-    self.validadores[nombre_atributo] = Validador.new(proc{ self <= parametros[:to] }) if parametros.has_key?(:to)
-    self.validadores[nombre_atributo] = Validador.new(proc{ self >= parametros[:from] }) if parametros.has_key?(:from)
+    self.validadores[nombre_atributo] << Validador.new(proc{ self <= parametros[:to] }) if parametros.has_key?(:to)
+    self.validadores[nombre_atributo] << Validador.new(proc{ self >= parametros[:from] }) if parametros.has_key?(:from)
 
-    self.validadores[nombre_atributo] = Validador.new(parametros[:validate]) if parametros.has_key?(:validate)
-    self.validadores[nombre_atributo] = Validador.new(proc{!self.blank? && !self.nil?}) if parametros.has_key?(:no_blank)
+    self.validadores[nombre_atributo] << Validador.new(parametros[:validate]) if parametros.has_key?(:validate)
 
   end
 
@@ -466,8 +489,24 @@ class Validador
     @bloque = bloque
   end
   def validar(valor)
-    valor.instance_exec(&@bloque)
+    if valor.is_a? Array
+      valor.all?(&@bloque)
+    else
+      valor.instance_exec(&@bloque)
+    end
+
   end
+end
+
+class ValidadorNoBlank
+  def validar(valor)
+    if valor.is_a? Array
+      valor != []
+    else
+      !(valor.nil? || valor == "" )
+      end
+  end
+
 end
 
 module Boolean
@@ -487,7 +526,7 @@ end
 # No existe una tabla para las Personas, porque es un módulo.
 class Grade #TODO: Verificar que la repeticion de atributos sea destructiva (que se pisen)
   include Persistible
-  has_one Numeric, named: :value
+  has_one Numeric, named: :value, from: 1, to: 10, no_blank: true
   #has_one Array, named: :comments #TODO: Implementar una Excepcion propia para cuando un atributo no es ni persitible ni primitivo
 end
 
@@ -514,7 +553,8 @@ end
 
 class Student
   include Person # person.included(self)
-  has_one Grade, named: :grade, validate: proc { value >= 6 }
+  has_one Grade, named: :grade
+  has_many Grade, named: :historial, no_blank: true
 end
 
 class AsesinoSerial < Student
@@ -531,6 +571,9 @@ class AssistantProfessor < Student
 end
 
 class Main
+
+  grade1= Grade.new
+  grade1.value = 6
 
 
   alien1 = Alien.new
@@ -552,21 +595,24 @@ class Main
   profesor.especie = "Humano"
   profesor.type = "Capo"
   profesor.objetos = ["cuchara","cafe"]
+  profesor.historial= [grade1,grade1]
   profesor.save!
 
   estudiante = Student.new
-  #estudiante.full_name = "Pedro Pascal"
+  estudiante.full_name = "Pedro Pascal"
   estudiante.especie = "Humano"
   estudiante.grade = Grade.new
   estudiante.grade.value = 5
-  #estudiante.objetos = ["lapiz","cuaderno"]
+  estudiante.objetos = ["lapiz","cuaderno"]
+  estudiante.historial= [grade1]
+  estudiante.validate!
   estudiante.save!
-  #estudiante.save!
 
   asesino = AsesinoSerial.new
   asesino.full_name= "Freddy Krueger"
   asesino.especie = "Humano"
   asesino.personalidades = [alien1,alien2]
+  asesino.historial= [grade1]
   asesino.save!
 
   todos = Person.all_instances
@@ -574,5 +620,7 @@ class Main
 
   todos_vivos = LivingBeing.all_instances
   todos_vivos
+  humanos = Student.find_by_objeto(["lapiz","cuaderno"])
+  humanos
 end
 
