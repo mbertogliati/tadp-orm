@@ -15,6 +15,26 @@ class PersistibleInvalido < Exception
   end
 end
 
+class TipoInvalido < Exception
+  attr_accessor :tipo
+
+  def initialize(tipo)
+    self.tipo = tipo
+    msg = "El tipo " + tipo.to_s + " no puede ser persistido."
+    super(msg)
+  end
+
+end
+
+module Boolean
+
+end
+class TrueClass
+  include Boolean
+end
+class FalseClass
+  include Boolean
+end
 
 module Persistible
   # punto 1
@@ -28,6 +48,7 @@ module Persistible
 
   end
 
+  #TODO: Refactorizar
   def self.agregar_descendiente(base)
   end
   def self.diccionario_de_tipos
@@ -126,7 +147,6 @@ module Persistible
 
     self.atributos_persistibles[:id] = nil
   end
-  #TODO: Anda mal el validate!
   def validate!
     #TODO: Logica Repetida
     atributos_validos = self.class.diccionario_de_tipos.map do |key, _|
@@ -142,9 +162,7 @@ module Persistible
         end
     end.all?
 
-    unless atributos_simples_validos && atributos_many_validos
-      raise PersistibleInvalido.new(self)
-    end
+
   end
 
   def validar_tipos(key, value)
@@ -301,7 +319,8 @@ module ClaseDePersistible
   attr_reader :diccionario_de_tipos,:tablas_intermedias,:table,:defaults,:validadores
 
   @@dummy_table = Object.new
-  @@dummy_table.define_singleton_method(:entries) { [] }
+  @@dummy_table.define_singleton_method(:entries) { [] } #TODO: Fijarse si esto es necesario
+  @@tipos_validos = [Numeric, String, Boolean, Persistible]
 
   def self.extended(quien_llama)
 
@@ -326,6 +345,7 @@ module ClaseDePersistible
   end
 
   def has_many(tipo, *params)
+    self.validar_tipo(tipo)
     parametros = params.reduce({}, :merge)
     nombre_lista = parametros[:named]
     defaults[nombre_lista] = parametros[:default]
@@ -348,12 +368,14 @@ module ClaseDePersistible
 
   end
   def has_one(tipo, *params)
+    self.validar_tipo(tipo)
     parametros = params.reduce({}, :merge)
     nombre_atributo = parametros[:named]
     defaults[nombre_atributo] = parametros[:default]
     self.diccionario_de_tipos[nombre_atributo] = tipo
-
     self.crear_validadores(nombre_atributo,parametros)
+
+    self.tablas_intermedias.delete(nombre_atributo)
 
     self.define_method(nombre_atributo) do
       self.atributos_persistibles[nombre_atributo] ||= parametros[:default]
@@ -454,6 +476,15 @@ module ClaseDePersistible
   ###################
   private
 
+  def validar_tipo(tipo)
+    es_tipo_valido = @@tipos_validos.any? do |tipo_valido|
+      tipo.ancestors.include?(tipo_valido)
+    end
+
+    raise TipoInvalido.new(tipo) unless es_tipo_valido
+
+  end
+
   def all_entries
     self.table.entries
   end
@@ -489,46 +520,43 @@ class Validador
     @bloque = bloque
   end
   def validar(valor)
+    raise PersistibleInvalido.new(self) unless self.es_valido?(valor)
+    self.es_valido?(valor)
+  end
+
+  def es_valido?(valor)
     if valor.is_a? Array
       valor.all?(&@bloque)
     else
       valor.instance_exec(&@bloque)
     end
-
   end
+
 end
 
 class ValidadorNoBlank
+
   def validar(valor)
+    raise PersistibleInvalido.new(self) unless self.es_valido?(valor)
+    self.es_valido?(valor)
+  end
+
+  def es_valido?(valor)
     if valor.is_a? Array
       valor != []
     else
       !(valor.nil? || valor == "" )
-      end
+    end
   end
 
-end
 
-module Boolean
-
-end
-class TrueClass
-  include Boolean
-end
-
-class FalseClass
-  include Boolean
 end
 
 ################ Clases persistibles ###############
 
 
 # No existe una tabla para las Personas, porque es un módulo.
-class Grade #TODO: Verificar que la repeticion de atributos sea destructiva (que se pisen)
-  include Persistible
-  has_one Numeric, named: :value, from: 1, to: 10, no_blank: true
-  #has_one Array, named: :comments #TODO: Implementar una Excepcion propia para cuando un atributo no es ni persitible ni primitivo
-end
+
 
 
 module LivingBeing
@@ -541,6 +569,17 @@ class Alien
 
   has_one String, named: :planeta
   has_many String, named: :ojos
+end
+
+class Grade
+  include Persistible
+  has_one Numeric, named: :value
+  has_one String, named: :value
+  has_many String, named: :value
+  has_many Alien , named: :value
+  has_one Numeric, named: :value, from: 1, to: 10, no_blank: true
+  has_one Numeric, named: :value
+  #has_one Array, named: :comments #TODO: Implementar una Excepcion propia para cuando un atributo no es ni persitible ni primitivo
 end
 
 module Person
@@ -620,7 +659,7 @@ class Main
 
   todos_vivos = LivingBeing.all_instances
   todos_vivos
-  humanos = Student.find_by_objeto(["lapiz","cuaderno"])
+  humanos = Student.find_by_objetos(["lapiz","cuaderno"])
   humanos
 end
 

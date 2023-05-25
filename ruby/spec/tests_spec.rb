@@ -1,255 +1,311 @@
 require 'rspec'
 require_relative '../lib/prueba.rb'
 
-describe 'Clase de Persistible' do
+module Person
+  has_many String, named: :objetos
+  has_one String, named: :full_name, default: "Juan Perez"
+  end
+
+class Grade
+  has_one Numeric, named: :value
+end
+
+class Estudiante
+  include Person
+  has_one Numeric, named: :edad
+  has_one Grade, named: :grade
+  has_many Grade, named: :historial
+end
 
   describe 'Todas las Clases de Persistible' do
   before(:example) do
     @miClasePersistible = Class.new.extend(ClaseDePersistible)
   end
 
-  it 'tienen tabla asociada' do
-    expect(@miClasePersistible.table.is_a? TADB::Table).to be true
-  end
-
-  it 'tienen diccionario de tipos' do
-    expect(@miClasePersistible.diccionario_de_tipos.is_a? Hash).to be true
-  end
-
-  it 'entienden el mensaje has_key?' do
-    expect(@miClasePersistible.respond_to?(:has_key?)).to be true
-  end
-
-  describe "entienden el mensaje has_one" do
-    before(:example) do
-      expect(@miClasePersistible.respond_to?(:has_one)).to be true
-    end
-
-    it 'y agregan las claves a su diccionario de tipos cada vez que se lo llama' do
-
-      claves = {:string1 => String, :string2 => String, :numero => Integer}
-
-      claves.each do |key,value|
-        @miClasePersistible.has_one(value, named: key)
-      end
-
-      expect(claves.all? {|key,value| @miClasePersistible.diccionario_de_tipos.has_key?(key) && @miClasePersistible.diccionario_de_tipos[key] == value}).to be true
-    end
-
-  end
-
-    it 'entienden el mensaje all_entries' do
-      expect(@miClasePersistible.respond_to?(:all_entries)).to be true
-    end
-
-    it 'entienden el mensaje find_entries_by' do
-      expect(@miClasePersistible.respond_to?(:find_entries_by)).to be true
-    end
-  end
-  it 'Las Clases que incluyen a Persistible son Clases de Persistible' do
-    expect(Class.new.include(Persistible).is_a? ClaseDePersistible).to be true
-  end
-end
-
-describe 'Persistible' do
+describe 'ORM Tests' do
 
   before(:context) do
-    @clase_de_persistible = Class.new.include(Persistible)
-    otra_clase_persistible = Class.new.include(Persistible)
-    otra_clase_persistible.define_singleton_method(:to_s) do
-      "OtraClasePersistiblePrueba"
-    end
-    otra_clase_persistible.has_one(String, named: :string3)
-    otra_clase_persistible.has_one(String, named: :string4)
-    otra_clase_persistible.has_one(Integer, named: :numero2)
-
-    instancia1 = otra_clase_persistible.new
-    instancia1.string3 = "hola"
-    instancia1.string4 = "chau"
-    instancia1.numero2 = 1
+    @estudiante = Estudiante.new
+    @estudiante2 = Estudiante.new
+    @profesor = Profesor.new
+  end
 
 
-    @clase_de_persistible.has_one(String, named: :string1)
-    @clase_de_persistible.has_one(String, named: :string2)
-    @clase_de_persistible.has_one(Integer, named: :numero)
-    @clase_de_persistible.has_one(otra_clase_persistible, named: :otro_persistible)
+  describe 'Persistencia de objetos sencillos' do
 
-    @clase_de_persistible.define_singleton_method(:to_s) do
-      "ClaseDePersistiblePrueba"
+    it 'definir atributo persistible,has_one' do
+      @estudiante.full_name= "Fran"
+      expect(@estudiante.full_name).to eq("")
     end
 
-    @clase_de_persistible.define_singleton_method(:to_s) do
-      "ClaseDePersistiblePrueba"
+    it 'se pueden persistir y recuperar atributos' do
+      @estudiante.full_name= "Fran"
+      @estudiante.save!
+      @estudiante.full_name= ""
+      @estudiante.refresh!
+      expect(@estudiante.full_name).to eq "Fran"
+    end
+
+    it 'forget!' do
+      @estudiante.save!
+      @estudiante.forget!
+      expect(@estudiante.id).to eq nil
     end
 
   end
 
-  describe 'Todos los Persistibles' do
-    before(:context) do
-      @mi_persistible = @clase_de_persistible.new
+  describe 'Recuperacion y busqueda' do
+    after(:example) do
+      Estudiante.table.clear
+      Grade.table.clear
+    end
+    it 'Se pueden recuperar todas las instancias persistidas de una clase' do
+
+      @estudiante.save!
+      @estudiante2.save!
+      estudiantes = Estudiante.all_instances
+      expect([@estudiante, @estudiante2].all? {|e| estudiantes.include? e }).to eq true
     end
 
-    it 'tienen atributos persistibles' do
-      expect(@mi_persistible.respond_to?(:atributos_persistibles)).to be true
-      expect(@mi_persistible.atributos_persistibles.is_a? Hash).to be true
+    it 'Se puede buscar instancias persistidas por valores de atributos' do
+      @estudiante.edad = 35
+      @estudiante.save!
+      @profesor.edad = 35
+      @profesor.save!
+
+      expect(Profesor.find_by_edad(35)).to eq([@profesor]) end
+
+  end
+
+  describe 'Relaciones entre objetos' do
+    after(:context) do
+      Estudiante.table.clear
+      Grade.table.clear
+      Ayudante.table.clear
+      Profesor.table.clear
+    end
+    it 'Al persistirse un objeto se persisten todos los compuestos ' do
+      grade1 = Grade.new
+      grade1.value = 4
+      @estudiante.grade = grade1
+      @estudiante.save!
+      grades = Grade.all_instances
+      expect(grades).to eq [grade1]
     end
 
-    it 'entienden siempre todos los mensajes asociados a los atributos definidos en su clase (menos setter de id)' do
+    it 'Cuando se recupera el objeto, todos los objetos compuestos se recuperan de sus tablas' do
+      @estudiante.grade = Grade.new
+      @estudiante.grade.value = 4
+      @estudiante.save!
 
-      @mi_persistible.class.diccionario_de_tipos.each do |key,value|
-          expect(@mi_persistible.respond_to?(key)).to be true
-          if key != :id
-            expect(@mi_persistible.respond_to?("#{key}=")).to be true
-          end
-      end
+      grade = @estudiante.grade
+      grade.value = 5
+      grade.save!
+
+      gradeEstudiante = @estudiante.refresh!.grade
+      expect(gradeEstudiante.value).to eq 5
     end
 
-    it 'entienden el mensaje refresh!' do
-      expect(@mi_persistible.respond_to?(:refresh!)).to be true
+    it 'Se permiten atributos has_many' do
+      expect(@estudiante.historial).to eq []
     end
 
-    it 'entienden el mensaje forget!' do
-      expect(@mi_persistible.respond_to?(:forget!)).to be true
+    it 'Se salvan los objetos y sus atributos persistibles has_many' do
+      grade1 = Grade.new
+      grade1.value = 7
+      grade2 = Grade.new
+      grade2.value = 9
+
+      @estudiante.historial.push(grade1)
+      @estudiante.historial.push(grade2)
+      @estudiante.save!
+
+      estudiantePersistido = @estudiante.refresh!
+      expect([grade1, grade2].all? {|e| Grade.all_instances.include? e }).to eq true
+      expect(estudiantePersistido.historial).to eq [grade1, grade2]
     end
 
-    it 'entienden el mensaje save!' do
-      expect(@mi_persistible.respond_to?(:save!)).to be true
+    it 'Los módulos no tienen tablas, y las clases tienen tablas con sus atributos y los de su padre' do
+      Profesor.table.clear
+      Ayudante.table.clear
+      
+      profesor = Profesor.new
+      profesor.full_name = "Bruno Diaz"
+      profesor.materia = "TADP"
+      profesor.edad = 42
+      profesor.save!
+
+      ayudante1 = Ayudante.new
+      ayudante1.materia = "TADP"
+      ayudante1.full_name = "Ricardo Tapia"
+      ayudante1.edad = 25
+      ayudante1.type = "Aprendiz"
+      ayudante1.save!
+
+      ayudante2 = Ayudante.new
+      ayudante2.materia = "ADS"
+      ayudante2.full_name = "Damian Diaz"
+      ayudante2.edad = 19
+      ayudante2.type = "Aprendiz"
+      ayudante2.save!
+
+      expect(Person.all_instances).to eq [profesor, ayudante1, ayudante2]
+      expect(Ayudante.all_instances).to eq [ayudante1, ayudante2]
+      expect(Profesor.find_by_materia("TADP")).to eq [profesor, ayudante1]
     end
 
   end
 
-  describe 'Los Persistibles guardados' do
-    before(:context) do
-      @mi_persistible = @clase_de_persistible.new
-
-      otro_persitible = @clase_de_persistible.diccionario_de_tipos[:otro_persistible].new
-
-      expect(@mi_persistible.respond_to?(:save!)).to be true
-      @mi_persistible.string1 = "string1"
-      @mi_persistible.string2 = "string2"
-      @mi_persistible.numero = 1
-
-      otro_persitible.string3 = "hola"
-      otro_persitible.string4 = "chau"
-      otro_persitible.numero2 = 2
-
-      @mi_persistible.otro_persistible = otro_persitible
-
-      @mi_persistible.class.table.clear
-
-      @id = @mi_persistible.save!
+  describe 'Validaciones y defaults' do
+    it 'Un objeto no se puede persistir con un atributo (primitivo) de tipo distinto al definido en la clase' do
+      @estudiante.full_name = 3
+      expect(@estudiante.save!).to raise_error(PersistibleInvalido)
     end
 
-    it 'al guardarlos devuelven el id' do
-      expect(@id).to be @mi_persistible.atributos_persistibles[:id]
+    it 'Un objeto no se puede persistir con un atributo (complejo) de tipo distinto al definido en la clase' do
+      @estudiante.grade = "Nueve"
+      expect(@estudiante.save!).to raise_error(PersistibleInvalido)
     end
 
-    it 'tienen sus atributos persistibles guardados en la tabla de su clase' do
-      expect(@mi_persistible.atributos_persistibles[:otro_persistible].is_a? Persistible).to be true
-      hash_con_valores = @mi_persistible.atributos_persistibles.to_h do |key,value|
-        if value.is_a? Persistible
-          [key,value.id]
-        else
-          [key,value]
+    describe 'Validadores especificos' do
+      before(:context) do
+        class EstudianteParaValidadores
+          include Person
+          has_one Numeric, named: :edad, default: 18, no_blank: true
+          has_one Grade, named: :grade, from: 1, to: 10, no_blank: true
+          has_one Numeric, named: :diaCumple, validate: proc { self % 1 == 0 }
+          has_many String, named: :objetos, no_blank: true
         end
       end
-      expect(@mi_persistible.class.all_entries.first).to eq hash_con_valores
+    it 'El validador no-blank funciona tanto para atributos primitivos como complejos'  do
 
-      #TODO: A priori esto se cumple hasta que se agregue lo de composicion
+        estudiante = EstudianteParaValidadores.new
+        expect(estudiante.save!).to raise_error(PersistibleInvalido)
+        estudiante.objetos = [""]
+        expect(estudiante.save!).to raise_error(PersistibleInvalido)
+        estudiante.objetos = ["Celular"]
+        estudiante.edad = nil
+        expect(estudiante.save!).to raise_error(PersistibleInvalido)
+        estudiante.edad = 18
+        expect(estudiante.save!).to raise_error(PersistibleInvalido)
+        estudiante.grade = Grade.new
+        estudiante.grade.value = 5
+        estudiante.save!
+        
     end
 
-    it 'tienen asignado un id' do
-      expect(@mi_persistible.respond_to?(:id)).to be true
-      expect(@mi_persistible.id).to be @mi_persistible.atributos_persistibles[:id]
-    end
-
-    it 'pueden ser refrescados si se modifican sus atributos' do
-      @mi_persistible.string1 = "string1 modificado"
-      @mi_persistible.refresh!
-      expect(@mi_persistible.string1).to eq "string1"
-    end
-
-    describe 'pueden ser borrados' do
-      before(:context) do
-        @mi_persistible.forget!
+      it 'Los validadores from y to restringen el rango de valores que puede tomar el atributo' do
+        estudiante = EstudianteParaValidadores.new
+        estudiante.grade = 11
+        expect(estudiante.save!).to raise_error(PersistibleInvalido)
+        estudiante.grade = 0
+        expect(estudiante.save!).to raise_error(PersistibleInvalido)
+        estudiante.grade = 2
+        estudiante.save!
       end
-
-      it 'y ya no tendran id' do
-        expect(@mi_persistible.id).to be nil
-      end
-
+      
+      it 'Se puede validar una condicion especifica' do
+      estudiante = EstudianteParaValidadores.new
+      estudiante.diaCumple = 3.5
+      expect(estudiante.save!).to raise_error(PersistibleInvalido)
     end
 
+    xit 'Los atributos pueden tener valores default de instanciaciacion' do
+      
+    end
+
+    end
   end
 
-  describe 'Los Persistibles no guardados' do
+  describe 'Test Integral' do
     before(:context) do
+      module LivingBeing
+        include Persistible
+        has_one String, named: :especie
+      end
 
+      class Alien
+        include LivingBeing
 
-      @mi_persistible = @clase_de_persistible.new
+        has_one String, named: :planeta
+        has_many String, named: :ojos
+      end
 
-      @mi_persistible.string1 = "string1"
-      @mi_persistible.string2 = "string2"
-      @mi_persistible.numero = 1
+      class Grade
+        has_one Numeric, named: :value
+      end
 
-      @mi_persistible.class.table.clear
+      module Person
+        include LivingBeing  # persistible.included(self)
+        has_many String, named: :objetos
+        has_one String, named: :full_name, default: "Juan Perez"
+      end
+
+      class Student
+        include Person # person.included(self)
+        has_one Grade, named: :grade
+        has_many Grade, named: :historial, no_blank: true
+      end
+      class AsesinoSerial < Student
+        has_many Alien, named: :personalidades
+      end
+      class AssistantProfessor < Student
+        has_one String, named: :type
+      end
+
+      @grade1= Grade.new
+      @grade1.value = 6
+
+      @alien1 = Alien.new
+      @alien1.especie = "Extraterrestre"
+      @alien1.planeta = "Saturno"
+      @alien1.ojos = ["verde","azul"]
+      @alien1.validate!
+
+      @alien2 = Alien.new
+      @alien2.especie = "Extraterrestre"
+      @alien2.planeta = "Jupiter"
+      @alien2.ojos = ["marron","turquesa"]
+      @alien2.save!
+
+      @profesor = AssistantProfessor.new
+      @profesor.especie = "Humano"
+      @profesor.type = "Capo"
+      @profesor.objetos = ["cuchara","cafe"]
+      @profesor.historial= [@grade1,@grade1]
+      @profesor.save!
+
+      @estudiante = Student.new
+      @estudiante.full_name = "Pedro Pascal"
+      @estudiante.especie = "Humano"
+      @estudiante.grade = Grade.new
+      @estudiante.grade.value = 5
+      @estudiante.objetos = ["lapiz","cuaderno"]
+      @estudiante.historial= [@grade1]
+      @estudiante.validate!
+      @estudiante.save!
+
+      @asesino = AsesinoSerial.new
+      @asesino.full_name= "Freddy Krueger"
+      @asesino.especie = "Humano"
+      @asesino.personalidades = [@grade1,@alien2]
+      @asesino.historial= [@grade1]
+      @asesino.save!
 
     end
-
-    it 'no tienen asignado un id' do
-      expect(@mi_persistible.id).to be nil
+    after(:context) do
+      @grade1.class.table.clear
+      @alien1.class.table.clear
+      @alien2.class.table.clear
+      @profesor.class.table.clear
+      @estudiante.class.table.clear
+      @asesino.class.table.clear
     end
-
-    it 'dan error al intentar ser refrescados' do
-      expect{@mi_persistible.refresh!}.to raise_error(PersistibleNoGuardado)
+    it 'Las personas se recuperan correctamente' do
+      expect([@profesor,@estudiante,@asesino].all? {|e| Person.all_instances.include? e }).to eq true
     end
-
-    it 'pueden ser borrados' do
-      expect(@mi_persistible.forget!).to be(nil)
+    it 'Los seres vivos se recuperan correctamente' do
+      expect([@alien1,@alien2,@profesor,@estudiante,@asesino].all? {|e| LivingBeing.all_instances.include? e }).to eq True
     end
-
   end
-
-  describe 'Todas las Clases que incluyen a Persistible' do
-
-    before(:context) do
-      @misPersistibles = []
-
-      @n = 6
-
-      @n.times do |i|
-        @mi_persistible = @clase_de_persistible.new
-        @mi_persistible.string1 = "string"+i.to_s
-        @mi_persistible.string2 = "string"+i.to_s
-        @mi_persistible.numero = i
-        @mi_persistible.save!
-        @misPersistibles.push(@mi_persistible)
-      end
-
-    end
-
-    it 'pueden recuperar todos los objetos guardados' do
-      objetos_recuperados = @clase_de_persistible.all_instances
-      expect(objetos_recuperados.size).to be @n
-      expect(@clase_de_persistible.all_entries.size).to be @n
-      expect(@clase_de_persistible.all_entries).to eq @misPersistibles.map{|persistible| persistible.atributos_persistibles}
-
-      objetos_recuperados.all? do |objetoRecuperado|
-        expect(objetoRecuperado.is_a? @clase_de_persistible).to be true
-      end
-
-      objetos_recuperados.zip(@misPersistibles).all? do |objetoRecuperado, objetoOriginal|
-        objetoRecuperado.atributos_persistibles == objetoOriginal.atributos_persistibles
-      end
-
-    end
-
-    it 'entienden todos los mensajes de tipo find_by_{atributo}' do
-      @clase_de_persistible.diccionario_de_tipos.each do |key,value|
-        expect(@clase_de_persistible.send(:respond_to_missing?, "find_by_#{key}")).to be true
-      end
-    end
-
-  end
-
 end
