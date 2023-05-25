@@ -7,22 +7,17 @@ class PersistibleNoGuardado < Exception
     self.objeto = objeto
   end
 end
-class PersistibleInvalido < Exception
-  attr_accessor :objeto
 
-  def initialize(objeto)
+class PersistibleInvalido < Exception
+  attr_accessor :objeto , :msg
+
+  def initialize(objeto, msg)
     self.objeto = objeto
+    super(msg)
   end
 end
 
 class TipoInvalido < Exception
-  attr_accessor :tipo
-
-  def initialize(tipo)
-    self.tipo = tipo
-    msg = "El tipo " + tipo.to_s + " no puede ser persistido."
-    super(msg)
-  end
 
 end
 
@@ -48,7 +43,6 @@ module Persistible
 
   end
 
-  #TODO: Refactorizar
   def self.agregar_descendiente(base)
   end
   def self.diccionario_de_tipos
@@ -66,7 +60,9 @@ module Persistible
 
   def ==(otro_objeto)
     if !self.id.nil? && (otro_objeto.is_a? Persistible) && !otro_objeto.id.nil?
-      self.id == otro_objeto.id
+      self.atributos_has_one.map do |key,value|
+        value == otro_objeto.atributos_has_one[key]
+      end.all?
     else
       super
     end
@@ -150,44 +146,42 @@ module Persistible
 
     self.atributos_has_one[:id] = nil
   end
-  def validate!
-    #TODO: Logica Repetida
-    atributos_validos = self.class.diccionario_de_tipos.map do |key, _|
-        if self.class.tablas_intermedias.has_key?(key)
-          #Validar array
-          valor = atributos_has_many[key]
-          valor ||= []
-          self.validar_tipos(key, valor) && self.ejecutar_validadores(key,valor)
-        else
-          #Validar simple
-          valor = self.atributos_persistibles[key]
-          self.validar_tipos(key, valor) && self.ejecutar_validadores(key, valor)
-        end
-    end.all?
 
+  def validate!
+    self.class.diccionario_de_tipos.each do |key, _|
+      if self.class.tablas_intermedias.has_key?(key)
+        valor = atributos_has_many[key]
+        valor ||= []
+      else
+        valor = self.atributos_has_one[key]
+      end
+      self.validar_tipos(key, valor)
+      self.ejecutar_validadores(key,valor)
+    end
 
   end
 
   def validar_tipos(key, value)
     if value.is_a? Array
-      value.all? do |elem|
-        !elem.nil? && (elem.is_a? self.class.diccionario_de_tipos[key])
+      value.each do |elem|
+        result = !elem.nil? && (elem.is_a? self.class.diccionario_de_tipos[key])
+        raise PersistibleInvalido.new(self, "El tipo del atributo no es el correcto") unless result
       end
-      else
-    value.nil? || (value.is_a? self.class.diccionario_de_tipos[key])
+    else
+      result = value.nil? || (value.is_a? self.class.diccionario_de_tipos[key])
+      raise PersistibleInvalido.new(self, "El tipo del atributo no es el correcto") unless result
     end
   end
 
   def ejecutar_validadores(key,valor)
     unless( self.class.validadores[key].empty?)
-      self.class.validadores[key].all? do |validador|
+      self.class.validadores[key].each do |validador|
         if valor.is_a? Persistible
           valor.validate!
         end
-        validador.validar(valor)
+        result = validador.validar(valor)
+        raise PersistibleInvalido.new(self, "El atributo no puede persistirse porque no cumple las validaciones requeridas") unless result
       end
-    else
-      true
     end
   end
 
@@ -212,9 +206,9 @@ module Persistible
     self.obtener_diccionario_tipos_has_many.map do |nombre_atributo, tipo|
       nombre = "id_#{nombre_atributo.to_s}"
       lista_ids = tablas_intermedias[nombre_atributo.to_s.to_sym].entries.select do |entrada|
-         entrada["id_#{self.class.to_s}".to_sym] == self.id
+        entrada["id_#{self.class.to_s}".to_sym] == self.id
       end.map do |entrada|
-       entrada[nombre.to_sym]
+        entrada[nombre.to_sym]
       end
       [nombre_atributo,lista_ids]
     end
@@ -286,7 +280,7 @@ module Persistible
     tipo = self.class.diccionario_de_tipos[key]
     if tipo and tipo.ancestors.include? Persistible
       tipo.find_by_id(valor).first
-      else
+    else
       valor
     end
   end
@@ -308,8 +302,8 @@ module Persistible
       if sym.to_s.end_with?("=") and args.size == 1
         self[sym_base] = args.first
       else if args.size == 0
-        self[sym_base]
-        end
+             self[sym_base]
+           end
       end
     else
       super
@@ -406,7 +400,7 @@ module ClaseDePersistible
     self.validadores[nombre_atributo] << ValidadorNoBlank.new if parametros.has_key?(:no_blank)
 
     if (self.diccionario_de_tipos[nombre_atributo] != Numeric) && (parametros.has_key?(:from) || parametros.has_key?(:to))
-      raise "No se puede validar un atributo no numerico con from o to" #TODO
+      raise TipoInvalido.new "Los validadores 'from' y 'to' no pueden usarse en #{nombre_atributo.to_s} porque no es un Numeric"
     end
 
     self.validadores[nombre_atributo] << Validador.new(proc{ self <= parametros[:to] }) if parametros.has_key?(:to)
@@ -465,7 +459,7 @@ module ClaseDePersistible
     tablas = {}
     self.tablas_intermedias.each do |key,tabla|
       if descendiente.is_a? Class
-      tablas[key] = TADB::DB.table("#{descendiente.to_s}_#{key.to_s}")
+        tablas[key] = TADB::DB.table("#{descendiente.to_s}_#{key.to_s}")
       else
         tablas[key] = @@dummy_table
       end
@@ -473,13 +467,13 @@ module ClaseDePersistible
     tablas
   end
 
-  #TODO: Revisar como se rompen los modulos cuando se intentan invocar metodos asociados a la tabla
-
   def insertar(valor)
+    raise NoMethodError.new unless self.is_a? Class
     self.table.insert(valor)
   end
 
   def get_tabla_intermedia(nombre_atributo)
+    raise NoMethodError.new unless self.is_a? Class
     self.tablas_intermedias[nombre_atributo.to_s.to_sym]
   end
 
@@ -491,7 +485,7 @@ module ClaseDePersistible
       tipo.ancestors.include?(tipo_valido)
     end
 
-    raise TipoInvalido.new(tipo) unless es_tipo_valido
+    raise TipoInvalido.new("El tipo " + tipo.to_s + " no puede ser persistido.") unless es_tipo_valido
 
   end
 
@@ -530,11 +524,6 @@ class Validador
     @bloque = bloque
   end
   def validar(valor)
-    raise PersistibleInvalido.new(self) unless self.es_valido?(valor)
-    self.es_valido?(valor)
-  end
-
-  def es_valido?(valor)
     if valor.is_a? Array
       valor.all?(&@bloque)
     else
@@ -547,18 +536,12 @@ end
 class ValidadorNoBlank
 
   def validar(valor)
-    raise PersistibleInvalido.new(self) unless self.es_valido?(valor)
-    self.es_valido?(valor)
-  end
-
-  def es_valido?(valor)
     if valor.is_a? Array
       valor != []
     else
       !(valor.nil? || valor == "" )
     end
   end
-
 
 end
 
@@ -569,107 +552,5 @@ end
 
 
 
-module LivingBeing
-  include Persistible
-  has_one String, named: :especie
-end
 
-class Alien
-  include LivingBeing
-
-  has_one String, named: :planeta
-  has_many String, named: :ojos
-end
-
-class Grade
-  include Persistible
-  has_one Numeric, named: :value
-  has_one String, named: :value
-  has_many String, named: :value
-  has_many Alien , named: :value
-  has_one Numeric, named: :value, from: 1, to: 10, no_blank: true
-  has_one Numeric, named: :value
-  #has_one Array, named: :comments #TODO: Implementar una Excepcion propia para cuando un atributo no es ni persitible ni primitivo
-end
-
-module Person
-  include LivingBeing  # persistible.included(self)
-  has_many String, named: :objetos
-  has_one String, named: :full_name, default: "Juan Perez"
-end
-
-#Person.all_instances ===> todos los students y todos los assistant professors
-
-class Student
-  include Person # person.included(self)
-  has_one Grade, named: :grade
-  has_many Grade, named: :historial, no_blank: true
-end
-
-class AsesinoSerial < Student
-  has_many Alien, named: :personalidades
-end
-
-#[Student,Person,Object]
-# Hay una tabla para los Alumnos con los campos id, nombre y nota.
-
-# Hay una tabla para los Ayudantes con id, nombre, nota y tipo
-
-class AssistantProfessor < Student
-  has_one String, named: :type
-end
-
-class Main
-
-  grade1= Grade.new
-  grade1.value = 6
-
-
-  alien1 = Alien.new
-  alien1.especie = "Extraterrestre"
-  alien1.planeta = "Saturno"
-  alien1.ojos = ["verde","azul"]
-  alien1.validate!
-
-  #alien1.save!
-
-  alien2 = Alien.new
-  alien2.especie = "Extraterrestre"
-  alien2.planeta = "Jupiter"
-  alien2.ojos = ["marron","turquesa"]
-  alien2.save!
-
-  profesor = AssistantProfessor.new
-  #profesor.full_name = "Nico"
-  profesor.especie = "Humano"
-  profesor.type = "Capo"
-  profesor.objetos = ["cuchara","cafe"]
-  profesor.historial= [grade1,grade1]
-  profesor.save!
-
-  estudiante = Student.new
-  estudiante.full_name = "Pedro Pascal"
-  estudiante.especie = "Humano"
-  estudiante.grade = Grade.new
-  estudiante.grade.value = 5
-  estudiante.objetos = ["lapiz","cuaderno"]
-  estudiante.historial= [grade1]
-  estudiante.validate!
-  estudiante.save!
-
-  asesino = AsesinoSerial.new
-  asesino.full_name= "Freddy Krueger"
-  asesino.especie = "Humano"
-  asesino.personalidades = [alien1,alien2]
-  asesino.historial= [grade1]
-  asesino.save!
-
-  todos = Person.all_instances
-  todos
-
-  todos_vivos = LivingBeing.all_instances
-  todos_vivos
-  humanos = Student.find_by_objetos(["lapiz","cuaderno"])
-  humanos
-end
 

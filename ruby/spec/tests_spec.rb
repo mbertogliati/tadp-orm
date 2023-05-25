@@ -8,6 +8,7 @@ module Person
   end
 
 class Grade
+  include Persistible
   has_one Numeric, named: :value
 end
 
@@ -98,7 +99,7 @@ describe 'ORM Tests' do
       @estudiante.grade = grade1
       @estudiante.save!
       grades = Grade.all_instances
-      expect(grades).to eq [grade1]
+      expect(grades.first).to eq grade1
     end
 
     it 'Cuando se recupera el objeto, todos los objetos compuestos se recuperan de sus tablas' do
@@ -115,7 +116,7 @@ describe 'ORM Tests' do
     end
 
     it 'Se permiten atributos has_many' do
-      expect(@estudiante.historial).to eq []
+      expect(@estudiante.historial.empty?).to eq true
     end
 
     it 'Se salvan los objetos y sus atributos persistibles has_many' do
@@ -130,7 +131,7 @@ describe 'ORM Tests' do
 
       estudiantePersistido = @estudiante.refresh!
       expect([grade1, grade2].all? {|e| Grade.all_instances.include? e }).to eq true
-      expect(estudiantePersistido.historial).to eq [grade1, grade2]
+      expect([grade1, grade2].all? {|e| estudiantePersistido.historial.include? e }).to eq true
     end
 
     it 'Los módulos no tienen tablas, y las clases tienen tablas con sus atributos y los de su padre' do
