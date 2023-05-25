@@ -18,10 +18,17 @@ class Estudiante
   has_many Grade, named: :historial
 end
 
-  describe 'Todas las Clases de Persistible' do
-  before(:example) do
-    @miClasePersistible = Class.new.extend(ClaseDePersistible)
-  end
+class Profesor
+  include Person
+  has_one String, named: :materia  
+  has_one Numeric, named: :edad
+end
+
+class Ayudante < Profesor
+  has_one String, named: :type
+end
+
+
 
 describe 'ORM Tests' do
 
