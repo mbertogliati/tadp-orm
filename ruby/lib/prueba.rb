@@ -39,7 +39,7 @@ end
 module Persistible
   # punto 1
 
-  attr_accessor :atributos_persistibles
+  attr_accessor :atributos_has_one
   attr_accessor :atributos_has_many
 
 
@@ -77,13 +77,13 @@ module Persistible
   end
 
   def initialize
-    self.atributos_persistibles = {}
+    self.atributos_has_one = {}
     self.atributos_has_many = {}
-    self.atributos_persistibles[:id] = nil
+    self.atributos_has_one[:id] = nil
   end
 
   def id
-    self.atributos_persistibles[:id]
+    self.atributos_has_one[:id]
   end
 
   def save!
@@ -95,11 +95,11 @@ module Persistible
       self.borrar_entrada
     end
 
-    diccionario_para_guardar = self.atributos_persistibles.to_h do |key,value|
+    diccionario_para_guardar = self.atributos_has_one.to_h do |key,value|
       [key,self.guardar_y_convertir_a_valor(value)]
     end
 
-    self.atributos_persistibles[:id] = self.class.insertar(diccionario_para_guardar)
+    self.atributos_has_one[:id] = self.class.insertar(diccionario_para_guardar)
 
 
 
@@ -135,7 +135,10 @@ module Persistible
 
   def refresh!
     raise PersistibleNoGuardado.new(self) if self.id.nil?
-    self.atributos_persistibles = self.class.find_entries_by(:id, self.id).first
+    instancia_refrescada = self.class.find_by_id(self.id).first
+    self.atributos_has_one = instancia_refrescada.atributos_has_one
+    self.atributos_has_many = instancia_refrescada.atributos_has_many
+
     self
   end
 
@@ -145,7 +148,7 @@ module Persistible
       self.borrar_entradas_many(nombre_atributo)
     end
 
-    self.atributos_persistibles[:id] = nil
+    self.atributos_has_one[:id] = nil
   end
   def validate!
     #TODO: Logica Repetida
@@ -190,7 +193,7 @@ module Persistible
 
   def llenar(hash) #################################################################################
     #Aca se asume que se carga el ID
-    self.atributos_persistibles = hash.select{|key, value| self.has_key?(key)}.to_h do |key,value|
+    self.atributos_has_one = hash.select{|key, value| self.has_key?(key)}.to_h do |key,value|
       [key,self.convertir_valor_a_objeto(key,value)]
     end
     self.atributos_has_many = self.obtener_diccionario_ids.map do |key, value|
@@ -201,7 +204,7 @@ module Persistible
 
   # punto 2
   def has_key?(key)
-    self.atributos_persistibles.has_key?(key) || self.class.has_key?(key)
+    self.atributos_has_one.has_key?(key) || self.class.has_key?(key)
   end
 
   def obtener_diccionario_ids() #Obtengo los diccionarios de la forma {idAtributo => "sdewihd9q8h23dbjasndiuh1x2379vdw9auqjn"} ej {idMateria => "sdewihd9q8h23dbjasndiuh1x2379vdw9auqjn"}
@@ -226,17 +229,24 @@ module Persistible
     end
   end
 
-  def atributos_persistibles
-    @atributos_persistibles
+  def atributos_has_one
+    @atributos_has_one
   end
 
   private
 
   def set_defaults
     self.class.diccionario_de_tipos.map do |key, value|
-      objeto = self.atributos_persistibles[key]
-      if objeto.nil? && !self.class.defaults[key].nil?
-        atributos_persistibles[key] = self.class.defaults[key]
+      if self.class.tablas_intermedias.has_key?(key)
+        objeto = self.atributos_has_many[key]
+        if objeto == [] && !self.class.defaults[key].nil?
+          atributos_has_many[key] = self.class.defaults[key]
+        end
+      else
+        objeto = self.atributos_has_one[key]
+        if objeto.nil? && !self.class.defaults[key].nil?
+          atributos_has_one[key] = self.class.defaults[key]
+        end
       end
     end
   end
@@ -378,12 +388,12 @@ module ClaseDePersistible
     self.tablas_intermedias.delete(nombre_atributo)
 
     self.define_method(nombre_atributo) do
-      self.atributos_persistibles[nombre_atributo] ||= parametros[:default]
-      self.atributos_persistibles[nombre_atributo]
+      self.atributos_has_one[nombre_atributo] ||= parametros[:default]
+      self.atributos_has_one[nombre_atributo]
     end
 
     self.define_method(nombre_atributo.to_s+"=") do |valor|
-      self.atributos_persistibles[nombre_atributo] = valor
+      self.atributos_has_one[nombre_atributo] = valor
     end
 
 

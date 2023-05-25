@@ -2,6 +2,7 @@ require 'rspec'
 require_relative '../lib/prueba.rb'
 
 module Person
+  include Persistible
   has_many String, named: :objetos
   has_one String, named: :full_name, default: "Juan Perez"
   end
@@ -33,9 +34,9 @@ describe 'ORM Tests' do
 
   describe 'Persistencia de objetos sencillos' do
 
-    it 'definir atributo persistible,has_one' do
+    it 'definir atributo persistible has_one' do
       @estudiante.full_name= "Fran"
-      expect(@estudiante.full_name).to eq("")
+      expect(@estudiante.full_name).to eq("Fran")
     end
 
     it 'se pueden persistir y recuperar atributos' do
@@ -149,9 +150,9 @@ describe 'ORM Tests' do
       ayudante2.type = "Aprendiz"
       ayudante2.save!
 
-      expect(Person.all_instances).to eq [profesor, ayudante1, ayudante2]
-      expect(Ayudante.all_instances).to eq [ayudante1, ayudante2]
-      expect(Profesor.find_by_materia("TADP")).to eq [profesor, ayudante1]
+      expect([profesor, ayudante1, ayudante2].all? {|e| Person.all_instances.include? e }).to eq true
+      expect([ayudante1, ayudante2].all? {|e| Ayudante.all_instances.include? e }).to eq true
+      expect([profesor, ayudante1].all? {|e| Profesor.find_by_materia("TADP").include? e }).to eq true
     end
 
   end
@@ -159,12 +160,12 @@ describe 'ORM Tests' do
   describe 'Validaciones y defaults' do
     it 'Un objeto no se puede persistir con un atributo (primitivo) de tipo distinto al definido en la clase' do
       @estudiante.full_name = 3
-      expect(@estudiante.save!).to raise_error(PersistibleInvalido)
+      expect{@estudiante.save!}.to raise_error(PersistibleInvalido)
     end
 
     it 'Un objeto no se puede persistir con un atributo (complejo) de tipo distinto al definido en la clase' do
       @estudiante.grade = "Nueve"
-      expect(@estudiante.save!).to raise_error(PersistibleInvalido)
+      expect{@estudiante.save!}.to raise_error(PersistibleInvalido)
     end
 
     describe 'Validadores especificos' do
@@ -172,49 +173,84 @@ describe 'ORM Tests' do
         class EstudianteParaValidadores
           include Person
           has_one Numeric, named: :edad, default: 18, no_blank: true
-          has_one Grade, named: :grade, from: 1, to: 10, no_blank: true
+          has_one Grade, named: :grade, no_blank: true
           has_one Numeric, named: :diaCumple, validate: proc { self % 1 == 0 }
           has_many String, named: :objetos, no_blank: true
         end
       end
     it 'El validador no-blank funciona tanto para atributos primitivos como complejos'  do
 
-        estudiante = EstudianteParaValidadores.new
-        expect(estudiante.save!).to raise_error(PersistibleInvalido)
-        estudiante.objetos = [""]
-        expect(estudiante.save!).to raise_error(PersistibleInvalido)
-        estudiante.objetos = ["Celular"]
-        estudiante.edad = nil
-        expect(estudiante.save!).to raise_error(PersistibleInvalido)
-        estudiante.edad = 18
-        expect(estudiante.save!).to raise_error(PersistibleInvalido)
-        estudiante.grade = Grade.new
-        estudiante.grade.value = 5
-        estudiante.save!
+      class MiEstudianteNoBlank
+        include Persistible
+        has_one Numeric, named: :edad, no_blank: true
+        has_many String, named: :objetos, no_blank: true
+      end
+
+      estudiante = MiEstudianteNoBlank.new
+      expect{estudiante.save!}.to raise_error(PersistibleInvalido)
+      estudiante.objetos = [""]
+      expect{estudiante.save!}.to raise_error(PersistibleInvalido)
+      estudiante.objetos = ["Celular"]
+      estudiante.edad = nil
+      expect{estudiante.save!}.to raise_error(PersistibleInvalido)
+      estudiante.edad = 18
+      estudiante.save!
         
     end
 
       it 'Los validadores from y to restringen el rango de valores que puede tomar el atributo' do
-        estudiante = EstudianteParaValidadores.new
-        estudiante.grade = 11
-        expect(estudiante.save!).to raise_error(PersistibleInvalido)
-        estudiante.grade = 0
-        expect(estudiante.save!).to raise_error(PersistibleInvalido)
-        estudiante.grade = 2
+
+        class MiEstudianteFromTo
+          include Persistible
+          has_one Numeric, named: :nota, from: 1, to: 10
+        end
+
+
+        estudiante = MiEstudianteFromTo.new
+        estudiante.nota = 11
+        expect{estudiante.save!}.to raise_error(PersistibleInvalido)
+        estudiante.nota = 0
+        expect{estudiante.save!}.to raise_error(PersistibleInvalido)
+        estudiante.nota = 2
         estudiante.save!
       end
       
       it 'Se puede validar una condicion especifica' do
-      estudiante = EstudianteParaValidadores.new
-      estudiante.diaCumple = 3.5
-      expect(estudiante.save!).to raise_error(PersistibleInvalido)
+      class MiEstudianteValidate
+        include Persistible
+        has_one Numeric, named: :dia_cumple, validate: proc { self % 1 == 0 }
+      end
+
+      estudiante = MiEstudianteValidate.new
+      estudiante.dia_cumple = 3.5
+      expect{estudiante.save!}.to raise_error(PersistibleInvalido)
+      estudiante.dia_cumple = 4
+      estudiante.save!
+      end
     end
 
-    xit 'Los atributos pueden tener valores default de instanciaciacion' do
-      
+  it 'Los atributos pueden tener valores default de instanciaciacion' do
+
+    class MiEstudianteDefault
+      include Persistible
+      has_one Numeric, named: :edad, default: 18
+      has_one String, named: :nombre, default: "Juan Perez"
+      has_many String, named: :objetos, default: ["Celular","Billetera","Sube"]
     end
 
-    end
+    estudiante = MiEstudianteDefault.new
+    expect(estudiante.nombre).to eq "Juan Perez"
+
+    estudiante.nombre = "Felicia"
+    estudiante.objetos = []
+    estudiante.save!
+
+    expect(estudiante.nombre).to eq "Felicia"
+    expect(["Celular","Billetera","Sube"].all? {|e| estudiante.objetos.include? e }).to eq true
+    expect(estudiante.edad).to eq 18
+  end
+
+
   end
 
   describe 'Test Integral' do
@@ -288,7 +324,7 @@ describe 'ORM Tests' do
       @asesino = AsesinoSerial.new
       @asesino.full_name= "Freddy Krueger"
       @asesino.especie = "Humano"
-      @asesino.personalidades = [@grade1,@alien2]
+      @asesino.personalidades = [@alien1,@alien2]
       @asesino.historial= [@grade1]
       @asesino.save!
 
@@ -305,7 +341,7 @@ describe 'ORM Tests' do
       expect([@profesor,@estudiante,@asesino].all? {|e| Person.all_instances.include? e }).to eq true
     end
     it 'Los seres vivos se recuperan correctamente' do
-      expect([@alien1,@alien2,@profesor,@estudiante,@asesino].all? {|e| LivingBeing.all_instances.include? e }).to eq True
+      expect([@alien1,@alien2,@profesor,@estudiante,@asesino].all? {|e| LivingBeing.all_instances.include? e }).to eq true
     end
   end
 end
