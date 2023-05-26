@@ -77,10 +77,6 @@ module Persistible
       super
     end
   end
-#
-  def delete_entries_by(atributo_sym, valor)
-    self.table.delete_if { |hash| hash[atributo_sym] == valor }
-  end
 
   def initialize
     self.atributos_has_one = {}
@@ -107,8 +103,6 @@ module Persistible
 
     self.atributos_has_one[:id] = self.class.insertar(diccionario_para_guardar)
 
-
-
     atributos_has_many.each do |key, _|
       self.save_many!(key)
     end
@@ -116,28 +110,6 @@ module Persistible
     self.id
   end
 
-  def save_many!(key_lista)
-
-    self.borrar_entradas_many(key_lista)
-
-    values = self.atributos_has_many[key_lista]
-
-    if values.length > 0
-
-      ids_elementos_lista = values.map do |value|
-        self.guardar_y_convertir_a_valor(value)
-      end
-
-      lista_hash_insertar = get_lista_hashes(ids_elementos_lista,key_lista)
-
-      # Si la tabla está ya creada me devuelve la tabla existente, y si no la crea para el nuevo atributo
-      tabla_intermedia = self.class.get_tabla_intermedia(key_lista)
-
-      lista_hash_insertar.each do |hash_insertar|
-        tabla_intermedia.insert(hash_insertar)
-      end
-    end
-  end
 
   def refresh!
     raise PersistibleNoGuardado.new(self) if self.id.nil?
@@ -168,31 +140,6 @@ module Persistible
       self.validar_tipos(key, valor)
       self.ejecutar_validadores(key,valor)
     end
-
-  end
-
-  def validar_tipos(key, value)
-    if value.is_a? Array
-      value.each do |elem|
-        result = !elem.nil? && (elem.is_a? self.class.diccionario_de_tipos[key])
-        raise PersistibleInvalido.new(self, "El tipo del atributo no es el correcto") unless result
-      end
-    else
-      result = value.nil? || (value.is_a? self.class.diccionario_de_tipos[key])
-      raise PersistibleInvalido.new(self, "El tipo del atributo no es el correcto") unless result
-    end
-  end
-
-  def ejecutar_validadores(key,valor)
-    unless( self.class.validadores[key].empty?)
-      self.class.validadores[key].each do |validador|
-        if valor.is_a? Persistible
-          valor.validate!
-        end
-        result = validador.validar(valor)
-        raise PersistibleInvalido.new(self, "El atributo no puede persistirse porque no cumple las validaciones requeridas") unless result
-      end
-    end
   end
 
   def llenar(hash) #################################################################################
@@ -211,6 +158,51 @@ module Persistible
     self.atributos_has_one.has_key?(key) || self.class.has_key?(key)
   end
 
+  private
+  def save_many!(key_lista)
+
+    self.borrar_entradas_many(key_lista)
+
+    values = self.atributos_has_many[key_lista]
+
+    if values.length > 0
+
+      ids_elementos_lista = values.map do |value|
+        self.guardar_y_convertir_a_valor(value)
+      end
+
+      lista_hash_insertar = get_lista_hashes(ids_elementos_lista,key_lista)
+
+      # Si la tabla está ya creada me devuelve la tabla existente, y si no la crea para el nuevo atributo
+      tabla_intermedia = self.class.get_tabla_intermedia(key_lista)
+
+      lista_hash_insertar.each do |hash_insertar|
+        tabla_intermedia.insert(hash_insertar)
+      end
+    end
+  end
+  def validar_tipos(key, value)
+    if value.is_a? Array
+      value.each do |elem|
+        result = !elem.nil? && (elem.is_a? self.class.diccionario_de_tipos[key])
+        raise PersistibleInvalido.new(self, "El tipo del atributo no es el correcto") unless result
+      end
+    else
+      result = value.nil? || (value.is_a? self.class.diccionario_de_tipos[key])
+      raise PersistibleInvalido.new(self, "El tipo del atributo no es el correcto") unless result
+    end
+  end
+  def ejecutar_validadores(key,valor)
+    unless self.class.validadores[key].empty?
+      self.class.validadores[key].each do |validador|
+        if valor.is_a? Persistible
+          valor.validate!
+        end
+        result = validador.validar(valor)
+        raise PersistibleInvalido.new(self, "El atributo no puede persistirse porque no cumple las validaciones requeridas") unless result
+      end
+    end
+  end
   def obtener_diccionario_ids() #Obtengo los diccionarios de la forma {idAtributo => "sdewihd9q8h23dbjasndiuh1x2379vdw9auqjn"} ej {idMateria => "sdewihd9q8h23dbjasndiuh1x2379vdw9auqjn"}
     tablas_intermedias = self.class.tablas_intermedias
     self.obtener_diccionario_tipos_has_many.map do |nombre_atributo, tipo|
@@ -224,7 +216,6 @@ module Persistible
     end
 
   end
-
   def get_lista_hashes(ids_elementos_lista,key_lista)
     nombre_id_clase_padre = "id_#{self.class.to_s}".to_sym
     nombre_id_tipo_persistido = "id_#{key_lista.to_s}".to_sym
@@ -233,11 +224,9 @@ module Persistible
     end
   end
 
-  def atributos_has_one
-    @atributos_has_one
+  def delete_entries_by(atributo_sym, valor)
+    self.table.delete_if { |hash| hash[atributo_sym] == valor }
   end
-
-  private
 
   def set_defaults
     self.class.diccionario_de_tipos.map do |key, value|
