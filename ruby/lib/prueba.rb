@@ -58,16 +58,26 @@ module Persistible
     {}
   end
 
+  def hash
+    self.atributos_has_one.merge(self.atributos_has_many).map { |key, value| value }.hash
+  end
+  def eql?(objeto)
+    self == objeto
+  end
   def ==(otro_objeto)
     if !self.id.nil? && (otro_objeto.is_a? Persistible) && !otro_objeto.id.nil?
-      self.atributos_has_one.map do |key,value|
+      equals_has_one = self.atributos_has_one.map do |key, value|
         value == otro_objeto.atributos_has_one[key]
       end.all?
+      c1 = self.atributos_has_many.map { |key, value| value}.flatten
+      c2 = otro_objeto.atributos_has_many.map { |key, value| value}.flatten
+      equals_has_many = (c1.all?{|elem| c2.include?(elem)}) && (c2.all?{|elem| c1.include?(elem)})
+      equals_has_one && equals_has_many
     else
       super
     end
   end
-
+#
   def delete_entries_by(atributo_sym, valor)
     self.table.delete_if { |hash| hash[atributo_sym] == valor }
   end
