@@ -3,7 +3,7 @@ import org.scalatest.freespec.{AnyFreeSpec}
 
 class ProjectSpec extends AnyFreeSpec {
 
-  "Este proyecto" - {
+  //"Este proyecto" - {
 
   //  "cuando está correctamente configurado" - {
   //    "debería resolver las dependencias y pasar este test" in {
