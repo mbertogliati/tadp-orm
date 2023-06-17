@@ -339,6 +339,7 @@ module ClaseDePersistible
       self.agregar_descendiente(base)
       super(base)
     end
+
     quien_llama.instance_variable_set(:@diccionario_de_tipos, quien_llama.ancestors[1].diccionario_de_tipos.clone)
     quien_llama.instance_variable_set(:@tablas_intermedias, quien_llama.ancestors[1].tablas_para_descendiente(quien_llama).clone)
     quien_llama.instance_variable_set(:@validadores, quien_llama.ancestors[1].validadores.clone) #{:nombre_atributo => [validador1,validador2]
