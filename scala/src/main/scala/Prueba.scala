@@ -12,65 +12,50 @@ case class ResultadoParser[T](parseado: T, resto: String){
 class Parser[T](parsear: (String => Try[ResultadoParser[T]])) extends (String => Try[ResultadoParser[T]]){
   override def apply(s: String) =
     parsear(s)
-  def <|>[U](p: String => Try[ResultadoParser[U]]) : Parser[Either[T,U]] =
-    new Parser[Either[T,U]](
-      {s =>
-        this(s).map(
-          _.map[Either[T,U]](
-            Left(_)))
-          .orElse(p(s).map(
-            _.map(Right(_))))
-      }
-    )
-  def <>[U](p: String => Try[ResultadoParser[U]]) : Parser[(T,U)] =
 
-    new Parser[(T,U)](
-      {s =>
-        this(s).flatMap(
-          r1 => p(r1.resto).map(_.map((r1.parseado, _))))
+  //cuando dos parsers se componen, se aplica uno detras del otro. El resultado final es el que dicta la funcionResultado
+  def componer[V,U](funcionResultado: (T,U) => V)(p: String => Try[ResultadoParser[U]]) : Parser[V] ={
+    val parserRecibido = new Parser[U](p)
+    new Parser[V](
+      { s =>
+        this(s).flatMap(r => parserRecibido.map(v => funcionResultado(r.parseado,v))(r.resto))
       }
     )
+  }
+
+
+  def <|>[U](p: String => Try[ResultadoParser[U]]) : Parser[Either[U,T]] = {
+    val parserRecibido = new Parser[U](p)
+    new Parser[Either[U,T]](
+      {s =>
+        this.map[Either[U,T]](Right(_))(s).orElse(parserRecibido.map[Either[U,T]](Left(_))(s))
+      }
+    )
+  }
+
+  def <>[U](p: String => Try[ResultadoParser[U]]) : Parser[(T,U)] = {
+    this.componer((t: T, u: U) => (t, u))(p)
+  }
+
   def ~>[U](p: String => Try[ResultadoParser[U]]) : Parser[U] =
-    new Parser[U](
-      {s =>
-        this(s).flatMap(resultado => p(resultado.resto))
-      }
-    )
+      this.componer((t:T,u:U) => u)(p)
 
   def <~[U](p: String => Try[ResultadoParser[U]]) : Parser[T] =
-    new Parser[T](
-      {s =>
-        this(s).flatMap(
-          r1 => p(r1.resto).map(_.map(_ => r1.parseado)))
-      }
-    )
+    this.componer((t:T,u:U) => t)(p)
+
   def satisfies(condicion: T => Boolean) : Parser[T] =
     new Parser[T](
       {s =>
-        this(s).filter(r => condicion(r.parseado)) match {
-          case Success(resultado) if (condicion(resultado.parseado)) =>  Success(resultado)
-          case Success(_) => Failure(new Exception("El resultado no cumple la condición"))
-          case Failure(e) => Failure(e)
-        }
+        this(s).filter(r => condicion(r.parseado))
       }
     )
   def opt : Parser[Option[T]] =
     new Parser[Option[T]](
-      {s =>
-        this(s) match {
-          case Success(resultado) => Success(ResultadoParser[Option[T]](Some(resultado.parseado), resultado.resto))
-          case Failure(_) => Success(ResultadoParser[Option[T]](None, s))
-        }
-      }
+      (this <|> ({s : String => Success(ResultadoParser(None, s))})).map(_.toOption)
     )
   def `*`: Parser[List[T]] =
     new Parser[List[T]](
-      {s =>
-        this(s) match {
-          case Success(resultado) => this.*(resultado.resto).map(resultado2 => ResultadoParser[List[T]](resultado.parseado::resultado2.parseado,resultado2.resto))
-          case Failure(_) => Success(ResultadoParser(List(),s))
-        }
-      }
+      this.componer((t:T,ts:List[T]) => t :: ts)(s => this.*(s)).orDefault(List())
     )
   def + : Parser[List[T]] =
     new Parser[List[T]](
@@ -82,26 +67,26 @@ class Parser[T](parsear: (String => Try[ResultadoParser[T]])) extends (String =>
       }
     )
   def sepBy(separador: Parser[_]) : Parser[List[List[T]]] =
-    new Parser[List[List[T]]](
-      {s =>
-        this.+(s).flatMap(
-          resultado =>
-            (separador ~> this.sepBy(separador)).opt(resultado.resto).map(
-              _.map(
-                option => resultado.parseado :: option.getOrElse(List())
-              )))
-      })
+
+        this.+.componer((t:List[T],ts:List[List[T]]) => t :: ts)(
+          s => (separador ~> this.sepBy(separador)).orDefault(List())(s)
+        )
+
   def const[U](valor : U): Parser[U] =
     new Parser[U](
-      {s =>
-        this(s).map(_.map(_ => valor))
-      }
+        this.map(_ => valor)
     )
   def map[U](f: T => U): Parser[U] =
     new Parser[U](
       {s =>
         this(s).map(_.map(f))
       }
+    )
+  //Este lo agregue yo porque me servia
+  def orDefault(valor: T): Parser[T] =
+    new Parser[T](
+    s =>
+      this(s).orElse(Success(ResultadoParser(valor, s)))
     )
 }
 
