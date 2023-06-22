@@ -1,4 +1,5 @@
-import scala.util.{Try, Success, Failure}
+import scala.math.log10
+import scala.util.{Failure, Success, Try}
 
 
 case class ResultadoParser[T](parseado: T, resto: String){
@@ -13,12 +14,16 @@ class Parser[T](parsear: (String => Try[ResultadoParser[T]])) extends (String =>
   override def apply(s: String) =
     parsear(s)
 
-  //cuando dos parsers se componen, se aplica uno detras del otro. El resultado final es el que dicta la funcionResultado
-  def componer[V,U](funcionResultado: (T,U) => V)(p: String => Try[ResultadoParser[U]]) : Parser[V] ={
+  //cuando dos parsers se componen, se aplica uno detras del otro. El resultado final es el que dicta la Transformacion
+  def componer[V,U](transformacion: (T,U) => V)(p: String => Try[ResultadoParser[U]]) : Parser[V] ={
     val parserRecibido = new Parser[U](p)
     new Parser[V](
       { s =>
-        this(s).flatMap(r => parserRecibido.map(v => funcionResultado(r.parseado,v))(r.resto))
+        for(
+          resultadoT <- this(s);
+          resultadoU <- parserRecibido(resultadoT.resto)
+        ) yield ResultadoParser(transformacion(resultadoT.parseado,resultadoU.parseado),resultadoU.resto)
+        //this(s).flatMap(r => parserRecibido.map(v => funcionResultado(r.parseado,v))(r.resto))
       }
     )
   }
@@ -28,10 +33,19 @@ class Parser[T](parsear: (String => Try[ResultadoParser[T]])) extends (String =>
     val parserRecibido = new Parser[U](p)
     new Parser[Either[U,T]](
       {s =>
-        this.map[Either[U,T]](Right(_))(s).orElse(parserRecibido.map[Either[U,T]](Left(_))(s))
+        this(s) match{
+          case Success(resultado) => Success(resultado.map(Right(_)))
+          case Failure(_) => parserRecibido.map[Either[U,T]](Left(_))(s)
+        }
+        //this.map[Either[U,T]](Right(_))(s).orElse(parserRecibido.map[Either[U,T]](Left(_))(s))
       }
     )
   }
+  def <|>(p: String => Try[ResultadoParser[T]]) : Parser[T] =
+    (this <|>[T] p).map[T]({
+      case Left(valor) => valor
+      case Right(valor) => valor
+    })
 
   def <>[U](p: String => Try[ResultadoParser[U]]) : Parser[(T,U)] = {
     this.componer((t: T, u: U) => (t, u))(p)
@@ -46,17 +60,22 @@ class Parser[T](parsear: (String => Try[ResultadoParser[T]])) extends (String =>
   def satisfies(condicion: T => Boolean) : Parser[T] =
     new Parser[T](
       {s =>
-        this(s).filter(r => condicion(r.parseado))
+      for(
+        resultado <- this(s) if condicion(resultado.parseado)
+      ) yield resultado
+        //this(s).filter(r => condicion(r.parseado))
       }
     )
   def opt : Parser[Option[T]] =
-    new Parser[Option[T]](
-      (this <|> ({s : String => Success(ResultadoParser(None, s))})).map(_.toOption)
-    )
+    for(
+      valor <- this <|> ({s : String => Success(ResultadoParser(None, s))})
+    ) yield valor.toOption
+
+  //(this <|> ({s : String => Success(ResultadoParser(None, s))})).map(_.toOption)
+
   def `*`: Parser[List[T]] =
-    new Parser[List[T]](
       this.componer((t:T,ts:List[T]) => t :: ts)(s => this.*(s)).orDefault(List())
-    )
+
   def + : Parser[List[T]] =
     new Parser[List[T]](
       {s =>
@@ -73,9 +92,8 @@ class Parser[T](parsear: (String => Try[ResultadoParser[T]])) extends (String =>
         )
 
   def const[U](valor : U): Parser[U] =
-    new Parser[U](
-        this.map(_ => valor)
-    )
+    this.map(_ => valor)
+
   def map[U](f: T => U): Parser[U] =
     new Parser[U](
       {s =>
@@ -121,6 +139,16 @@ object Main{
       (str: String) => ResultadoParser(str.substring(0, s.length), str.substring(s.length)),
       "La cadena a parsear no comienza con '" + s + "'").crear()
 
+}
+object Musiquita{
+  val silencio = Main.char('_') <|> Main.char('-') <|> Main.char('~')
+  val nombreNota = Main.anyChar.satisfies(c => c >= 'A' && c <= 'G')
+  val nota = nombreNota <> (Main.char('#') <|> Main.char('b')).opt
+  val tono = Main.digit <> nota
+  val fraccion = (Main.digit <~ Main.char('/')) <> Main.digit
+  val figura = fraccion.satisfies(tupla => tupla._1 == 1 && tupla._2 <= 16 && ((log10(tupla._2)/(log10(2.0)) % 1 == 0)))
+  val sonido = tono <> figura
+  val acordeExplicito = sonido.sepBy(Main.char('+'))
 }
 
 
