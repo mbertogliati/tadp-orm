@@ -2,7 +2,7 @@ import scala.math.log10
 import scala.util.{Failure, Success, Try}
 
 
-case class ResultadoParser[T](parseado: T, resto: String){
+case class ResultadoParser[+T](parseado: T, resto: String){
   def map[U](f: T => U): ResultadoParser[U] =
     ResultadoParser[U](f(parseado), resto)
 }
@@ -10,18 +10,17 @@ case class ResultadoParser[T](parseado: T, resto: String){
 
 //Un parser ES una funcion que toma un string y devuelve un resultado parseado
 //con la diferencia de que tiene más operaciones que una simple funcion
-class Parser[T](parsear: (String => Try[ResultadoParser[T]])) extends (String => Try[ResultadoParser[T]]){
+class Parser[+T](parsear: (String => Try[ResultadoParser[T]])) extends (String => Try[ResultadoParser[T]]){
   override def apply(s: String) =
     parsear(s)
 
   //cuando dos parsers se componen, se aplica uno detras del otro. El resultado final es el que dicta la Transformacion
   def componer[V,U](transformacion: (T,U) => V)(p: String => Try[ResultadoParser[U]]) : Parser[V] ={
-    val parserRecibido = new Parser[U](p)
     new Parser[V](
       { s =>
         for(
           resultadoT <- this(s);
-          resultadoU <- parserRecibido(resultadoT.resto)
+          resultadoU <- p(resultadoT.resto)
         ) yield ResultadoParser(transformacion(resultadoT.parseado,resultadoU.parseado),resultadoU.resto)
         //this(s).flatMap(r => parserRecibido.map(v => funcionResultado(r.parseado,v))(r.resto))
       }
@@ -29,23 +28,13 @@ class Parser[T](parsear: (String => Try[ResultadoParser[T]])) extends (String =>
   }
 
 
-  def <|>[U](p: String => Try[ResultadoParser[U]]) : Parser[Either[U,T]] = {
-    val parserRecibido = new Parser[U](p)
-    new Parser[Either[U,T]](
+  def <|>[U >: T](p: String => Try[ResultadoParser[U]]) : Parser[U] = {
+    new Parser[U](
       {s =>
-        this(s) match{
-          case Success(resultado) => Success(resultado.map(Right(_)))
-          case Failure(_) => parserRecibido.map[Either[U,T]](Left(_))(s)
-        }
-        //this.map[Either[U,T]](Right(_))(s).orElse(parserRecibido.map[Either[U,T]](Left(_))(s))
+          this(s).recoverWith(e => p(s))
       }
     )
   }
-  def <|>(p: String => Try[ResultadoParser[T]]) : Parser[T] =
-    (this <|>[T] p).map[T]({
-      case Left(valor) => valor
-      case Right(valor) => valor
-    })
 
   def <>[U](p: String => Try[ResultadoParser[U]]) : Parser[(T,U)] = {
     this.componer((t: T, u: U) => (t, u))(p)
@@ -66,10 +55,12 @@ class Parser[T](parsear: (String => Try[ResultadoParser[T]])) extends (String =>
         //this(s).filter(r => condicion(r.parseado))
       }
     )
-  def opt : Parser[Option[T]] =
-    for(
-      valor <- this <|> ({s : String => Success(ResultadoParser(None, s))})
-    ) yield valor.toOption
+  def opt : Parser[Option[T]] = {
+    new Parser[Option[T]](
+    { s =>
+        this.map(r => Some(r))(s).recoverWith(e => Success(ResultadoParser(None, s)))
+    })
+  }
 
   //(this <|> ({s : String => Success(ResultadoParser(None, s))})).map(_.toOption)
 
@@ -101,43 +92,29 @@ class Parser[T](parsear: (String => Try[ResultadoParser[T]])) extends (String =>
       }
     )
   //Este lo agregue yo porque me servia
-  def orDefault(valor: T): Parser[T] =
-    new Parser[T](
+  def orDefault[U >: T](valor: U): Parser[U] =
+    new Parser[U](
     s =>
-      this(s).orElse(Success(ResultadoParser(valor, s)))
+      this(s).orElse(Success(ResultadoParser[U](valor, s)))
     )
 }
 
-class ParserFactory[T](condicion : (String => Boolean), resultado : (String => ResultadoParser[T]),mensaje : String){
-  def crear() : Parser[T] =
-    new Parser[T]({ s =>
-      Try{
-      if (condicion(s)) {
-        resultado(s)
-
-      } else {
-        throw new Exception(mensaje)
-      }}
-    })
-}
-class CharParserFactory(condicion : (String => Boolean), mensaje: String) extends ParserFactory[Char](condicion, (s:String) => ResultadoParser(s.head, s.tail), mensaje)
-
-
 object Main{
 
-    val anyChar = new CharParserFactory((s:String) => s.nonEmpty, "Cadena vacía").crear()
-    val char = (c: Char) => new CharParserFactory((s: String) => s.head == c, "El caracter a parsear no coincide con '" + c + "'").crear()
-    val void = new ParserFactory[Unit](
-      (s: String) => s.nonEmpty,
-      (s: String) => ResultadoParser((), s),
-      "Cadena vacía").crear()
-    val letter = new CharParserFactory((s: String) => s.head.isLetter, "El caracter a parsear no es una letra").crear()
-    val digit = new CharParserFactory((s: String) => s.head.isDigit, "El caracter a parsear no es un dígito").crear()
-    val alphaNum = new CharParserFactory((s: String) => s.head.isLetterOrDigit, "El caracter a parsear no es alfanumérico").crear()
-    val string = (s: String) => new ParserFactory[String](
-      (str: String) => str.startsWith(s),
-      (str: String) => ResultadoParser(str.substring(0, s.length), str.substring(s.length)),
-      "La cadena a parsear no comienza con '" + s + "'").crear()
+  val anyChar = new Parser({s => Try(ResultadoParser(s.head, s.tail))})
+  val char = (c: Char) => anyChar.satisfies(_ == c)
+  val void = new Parser({s => Try(ResultadoParser((), s))})
+  val letter = new Parser({s => anyChar.satisfies(_.isLetter)(s)})
+  val digit = new Parser({s => anyChar.satisfies(_.isDigit)(s)})
+  val alphaNum = digit <|> letter
+  val string = (str: String) => new Parser({
+    s =>
+        if (s.startsWith(str)){
+          Try(ResultadoParser(str, s.substring(str.length)))
+        } else {
+          Failure(new Exception("La cadena no empieza con '" + str+"'"))
+        }
+  })
 
 }
 object Musiquita{
