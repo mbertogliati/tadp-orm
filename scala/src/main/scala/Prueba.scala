@@ -103,7 +103,14 @@ object Main{
 
   val anyChar = new Parser({s => Try(ResultadoParser(s.head, s.tail))})
   val char = (c: Char) => anyChar.satisfies(_ == c)
-  val void = new Parser({s => Try(ResultadoParser((), s))})
+  val void = new Parser({s =>
+    if(s.isEmpty){
+      Failure(new RuntimeException("La cadena esta vacía"))
+    }
+    else{
+      Try(ResultadoParser((), s))
+    }
+  })
   val letter = new Parser({s => anyChar.satisfies(_.isLetter)(s)})
   val digit = new Parser({s => anyChar.satisfies(_.isDigit)(s)})
   val alphaNum = digit <|> letter
