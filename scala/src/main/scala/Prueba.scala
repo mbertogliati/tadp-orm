@@ -3,8 +3,11 @@ import scala.util.{Failure, Success, Try}
 
 
 case class ResultadoParser[+T](parseado: T, resto: String){
-  def map[U](f: T => U): ResultadoParser[U] =
-    ResultadoParser[U](f(parseado), resto)
+  def map[U](f: T => U): ResultadoParser[U] = {
+    flatMap(r => ResultadoParser(f(r), resto))
+  }
+  def flatMap[U](f: T => ResultadoParser[U]): ResultadoParser[U] =
+    f(parseado)
 }
 
 
@@ -13,19 +16,6 @@ case class ResultadoParser[+T](parseado: T, resto: String){
 class Parser[+T](parsear: (String => Try[ResultadoParser[T]])) extends (String => Try[ResultadoParser[T]]){
   override def apply(s: String) =
     parsear(s)
-
-  //cuando dos parsers se componen, se aplica uno detras del otro. El resultado final es el que dicta la Transformacion
-  def componer[V,U](transformacion: (T,U) => V)(p: String => Try[ResultadoParser[U]]) : Parser[V] ={
-    new Parser[V](
-      { s =>
-        for(
-          resultadoT <- this(s);
-          resultadoU <- p(resultadoT.resto)
-        ) yield ResultadoParser(transformacion(resultadoT.parseado,resultadoU.parseado),resultadoU.resto)
-        //this(s).flatMap(r => parserRecibido.map(v => funcionResultado(r.parseado,v))(r.resto))
-      }
-    )
-  }
 
 
   def <|>[U >: T](p: String => Try[ResultadoParser[U]]) : Parser[U] = {
@@ -36,71 +26,70 @@ class Parser[+T](parsear: (String => Try[ResultadoParser[T]])) extends (String =
     )
   }
 
-  def <>[U](p: String => Try[ResultadoParser[U]]) : Parser[(T,U)] = {
-    this.componer((t: T, u: U) => (t, u))(p)
-  }
+  def <>[U](p: String => Try[ResultadoParser[U]]) : Parser[(T,U)] =
+      for(
+        parseado1 <- this;
+        parseado2 <- new Parser(p)
+      ) yield (parseado1, parseado2)
 
   def ~>[U](p: String => Try[ResultadoParser[U]]) : Parser[U] =
-      this.componer((t:T,u:U) => u)(p)
+      (this <> p).map(_._2)
 
   def <~[U](p: String => Try[ResultadoParser[U]]) : Parser[T] =
-    this.componer((t:T,u:U) => t)(p)
+    (this <> p).map(_._1)
 
   def satisfies(condicion: T => Boolean) : Parser[T] =
-    new Parser[T](
-      {s =>
-      for(
-        resultado <- this(s) if condicion(resultado.parseado)
-      ) yield resultado
-        //this(s).filter(r => condicion(r.parseado))
-      }
-    )
+    this.flatMap(parseado =>
+      new Parser(s =>
+        Try(ResultadoParser(parseado, s))
+          .filter(r => condicion(r.parseado))))
+
   def opt : Parser[Option[T]] = {
-    new Parser[Option[T]](
-    { s =>
-        this.map(r => Some(r))(s).recoverWith(e => Success(ResultadoParser(None, s)))
-    })
+    this.map(r => Some(r)) <|> {s : String => Success(ResultadoParser(None, s))}
   }
 
-  //(this <|> ({s : String => Success(ResultadoParser(None, s))})).map(_.toOption)
-
   def `*`: Parser[List[T]] =
-      this.componer((t:T,ts:List[T]) => t :: ts)(s => this.*(s)).orDefault(List())
+    this.+ orDefault List()
+
 
   def + : Parser[List[T]] =
-    new Parser[List[T]](
-      {s =>
-        this.*(s) match {
-          case Success(ResultadoParser(List(),_)) => Failure(new Exception("No se pudo parsear al menos un elemento"))
-          case Success(resultado) => Success(resultado)
-        }
-      }
-    )
-  def sepBy(separador: Parser[_]) : Parser[List[List[T]]] =
+    for (
+      parseado1 <- for (parseado <- this) yield List(parseado);
+      parseado2 <- this.+ orDefault List()
+    ) yield parseado1 ++ parseado2
+  def sepBy(p: String => Try[ResultadoParser[_]]) : Parser[List[List[T]]] = {
+    //TODO: elegir una solcion, la comentada usa cosas antes definidas mientras que la de ahora no.
+    for(
+      parseado1 <- for(resultado <- this.+ <~ (new Parser(p).opt)) yield List(resultado);
+      parseado2 <- this.sepBy(p).orDefault(List())
+    ) yield parseado1 ++ parseado2
+  }
 
-        this.+.componer((t:List[T],ts:List[List[T]]) => t :: ts)(
-          s => (separador ~> this.sepBy(separador)).orDefault(List())(s)
-        )
+  /*
+  new Parser[List[List[T]]](
+    s =>
+      ((this.+ <~ (new Parser(p).opt)).map(List(_)) <> this.sepBy(p).orDefault(List())).map(r => r._1 ++ r._2)(s)
+  )*/
 
   def const[U](valor : U): Parser[U] =
     this.map(_ => valor)
 
-  def map[U](f: T => U): Parser[U] =
+  def map[U](f: T => U): Parser[U] = {
+    flatMap(r => new Parser({s => Try(ResultadoParser(f(r), s))}))
+  }
+
+  def flatMap[U](f: T => Parser[U]): Parser[U] =
     new Parser[U](
       {s =>
-        this(s).map(_.map(f))
+        this(s).flatMap(r => f(r.parseado)(r.resto))
       }
     )
-  //Este lo agregue yo porque me servia
+
   def orDefault[U >: T](valor: U): Parser[U] =
-    new Parser[U](
-    s =>
-      this(s).orElse(Success(ResultadoParser[U](valor, s)))
-    )
+    this <|> {s => Success(ResultadoParser(valor, s))}
 }
 
 object Main{
-
   val anyChar = new Parser({s => Try(ResultadoParser(s.head, s.tail))})
   val char = (c: Char) => anyChar.satisfies(_ == c)
   val void = new Parser({s =>
@@ -111,8 +100,8 @@ object Main{
       Try(ResultadoParser((), s))
     }
   })
-  val letter = new Parser({s => anyChar.satisfies(_.isLetter)(s)})
-  val digit = new Parser({s => anyChar.satisfies(_.isDigit)(s)})
+  val letter = anyChar.satisfies(_.isLetter)
+  val digit = anyChar.satisfies(_.isDigit)
   val alphaNum = digit <|> letter
   val string = (str: String) => new Parser({
     s =>
