@@ -231,18 +231,18 @@ class ProjectSpec extends AnyFreeSpec {
         resultadoParser shouldBe a[Success[_]]
         resultadoParser.get shouldBe ResultadoParser(List(List('1','2'),List('3','4'),List('5','6')), "!")
       }
-      "falla si no matchea el parser de contenido" in {
+      "no falla si no matchea el separador" in {
+        val hola = digit.sepBy(char('-'))
+        val resultadoParser = hola("123 456!")
+        resultadoParser shouldBe a[Success[_]]
+      }
+      "falla si no matchea el parser de contenido al menos una vez" in {
         val hola = digit.sepBy(char('-'))
         val resultadoParser = hola("abc!")
 
         resultadoParser shouldBe a[Failure[_]]
       }
-      "falla si no matchea el separador" in {
-        val hola = digit.sepBy(char('-'))
-        val resultadoParser = hola("123 456!")
-        // TODO: no falla como deberia
-        resultadoParser shouldBe a[Failure[_]]
-      }
+
     }
 
     "const" - {
@@ -264,13 +264,13 @@ class ProjectSpec extends AnyFreeSpec {
     "map" - {
       "convierte el valor parseado utilizando la funcion recibida" in {
         case class Persona(nombre: String, apellido: String)
-        val personaParser = (alphaNum.* <> (char(' ') ~> alphaNum.*))
+        val nombreParser = alphaNum.+.map(_.mkString)
+        val personaParser = (nombreParser <> (char(' ') ~> nombreParser))
           .map { case (nombre, apellido) => Persona(nombre, apellido) }
-        // TODO: esta bien que alphaNum.* arme List[Char] en vez de String?
         val resultadoParser = personaParser("Lionel Messi!")
 
         resultadoParser shouldBe a[Success[_]]
-        resultadoParser.get shouldBe ResultadoParser(List("Lionel","Messi"), "!")
+        resultadoParser.get shouldBe ResultadoParser(Persona("Lionel","Messi"),"!")
       }
     }
   }
