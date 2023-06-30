@@ -13,8 +13,8 @@ case class ResultadoParser[+T](parseado: T, resto: String){
 
 //Un parser ES una funcion que toma un string y devuelve un resultado parseado
 //con la diferencia de que tiene más operaciones que una simple funcion
-class Parser[+T](parsear: (String => Try[ResultadoParser[T]])) extends (String => Try[ResultadoParser[T]]){
-  override def apply(s: String) =
+class Parser[+T](parsear: String => Try[ResultadoParser[T]]) extends (String => Try[ResultadoParser[T]]){
+  override def apply(s: String): Try[ResultadoParser[T]] =
     parsear(s)
 
 
@@ -60,7 +60,7 @@ class Parser[+T](parsear: (String => Try[ResultadoParser[T]])) extends (String =
   def sepBy(p: String => Try[ResultadoParser[_]]) : Parser[List[List[T]]] = {
     //TODO: elegir una solcion, la comentada usa cosas antes definidas mientras que la de ahora no.
     for(
-      parseado1 <- for(resultado <- this.+ <~ (new Parser(p).opt)) yield List(resultado);
+      parseado1 <- for(resultado <- this.+ <~ new Parser(p).opt) yield List(resultado);
       parseado2 <- this.sepBy(p).orDefault(List())
     ) yield parseado1 ++ parseado2
   }
@@ -91,7 +91,7 @@ class Parser[+T](parsear: (String => Try[ResultadoParser[T]])) extends (String =
 
 object Main{
   val anyChar = new Parser({s => Try(ResultadoParser(s.head, s.tail))})
-  val char = (c: Char) => anyChar.satisfies(_ == c)
+  val char: Char => Parser[Char] = (c: Char) => anyChar.satisfies(_ == c)
   val void = new Parser({s =>
     if(s.isEmpty){
       Failure(new RuntimeException("La cadena esta vacía"))
@@ -100,10 +100,10 @@ object Main{
       Try(ResultadoParser((), s))
     }
   })
-  val letter = anyChar.satisfies(_.isLetter)
-  val digit = anyChar.satisfies(_.isDigit)
-  val alphaNum = digit <|> letter
-  val string = (str: String) => new Parser({
+  val letter: Parser[Char] = anyChar.satisfies(_.isLetter)
+  val digit: Parser[Char] = anyChar.satisfies(_.isDigit)
+  val alphaNum: Parser[Char] = digit <|> letter
+  val string: String => Parser[String] = (str: String) => new Parser({
     s =>
         if (s.startsWith(str)){
           Try(ResultadoParser(str, s.substring(str.length)))
@@ -114,14 +114,14 @@ object Main{
 
 }
 object Musiquita{
-  val silencio = Main.char('_') <|> Main.char('-') <|> Main.char('~')
-  val nombreNota = Main.anyChar.satisfies(c => c >= 'A' && c <= 'G')
+  /*val silencio: Parser[Char] = Main.char('_') <|> Main.char('-') <|> Main.char('~')
+  val nombreNota: Parser[Char] = Main.anyChar.satisfies(c => c >= 'A' && c <= 'G')
   val nota = nombreNota <> (Main.char('#') <|> Main.char('b')).opt
   val tono = Main.digit <> nota
   val fraccion = (Main.digit <~ Main.char('/')) <> Main.digit
-  val figura = fraccion.satisfies(tupla => tupla._1 == 1 && tupla._2 <= 16 && ((log10(tupla._2)/(log10(2.0)) % 1 == 0)))
+  val figura = fraccion.satisfies(tupla => tupla._1 == 1 && tupla._2 <= 16 && (log10(tupla._2)/log10(2.0) % 1 == 0))
   val sonido = tono <> figura
-  val acordeExplicito = sonido.sepBy(Main.char('+'))
+  val acordeExplicito = sonido.sepBy(Main.char('+'))*/
 }
 
 
