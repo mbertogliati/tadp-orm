@@ -163,14 +163,14 @@ class ProjectSpec extends AnyFreeSpec {
   "operaciones" - {
     "satisfies" - {
       "crea un parser que funciona sólo si el parser base funciona y además el elemento parseado cumple esa condición" in {
-        val holaMundo = string("hola").satisfies(s => s.size == 4)
+        val holaMundo = string("hola").satisfies(s => s.length == 4)
         val resultadoParser = holaMundo("hola")
 
         resultadoParser shouldBe a[Success[_]]
         resultadoParser.get shouldBe ResultadoParser("hola", "")
       }
       "falla cuando no se cumple la condicion" in {
-        val holaMundo = string("hola").satisfies(s => s.size == 5)
+        val holaMundo = string("hola").satisfies(s => s.length == 5)
         val resultadoParser = holaMundo("hola")
 
         resultadoParser shouldBe a[Failure[_]]
