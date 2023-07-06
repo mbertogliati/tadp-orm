@@ -2,7 +2,7 @@ import org.scalatest.matchers.should.Matchers._
 import org.scalatest.freespec.AnyFreeSpec
 
 import scala.util.{Failure, Success}
-import Main._
+import EjemplosParser._
 
 
 class ProjectSpec extends AnyFreeSpec {
@@ -225,15 +225,16 @@ class ProjectSpec extends AnyFreeSpec {
 
     "sepBy" - {
       "parsea n (> 1) veces el parser de contenido y entre medio aplica el parser separador." in {
-        val hola = digit.sepBy(char('-'))
-        val resultadoParser = hola("12-34-56!")
+        var integer = digit.*.map(_.mkString.toInt)
+        val parserSeparador = integer.sepBy(char('-'))
+        val resultadoParser = parserSeparador("12-34-56!")
 
         resultadoParser shouldBe a[Success[_]]
-        resultadoParser.get shouldBe ResultadoParser(List(List('1','2'),List('3','4'),List('5','6')), "!")
+        resultadoParser.get shouldBe ResultadoParser(List(12,34,56), "!")
       }
       "no falla si no matchea el separador" in {
         val hola = digit.sepBy(char('-'))
-        val resultadoParser = hola("123 456!")
+        val resultadoParser = hola("1 456!")
         resultadoParser shouldBe a[Success[_]]
       }
       "falla si no matchea el parser de contenido al menos una vez" in {
@@ -275,4 +276,3 @@ class ProjectSpec extends AnyFreeSpec {
     }
   }
 }
-
