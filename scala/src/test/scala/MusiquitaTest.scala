@@ -19,4 +19,9 @@ class MusiquitaTest extends AnyFreeSpec{
     val miMelodia = melodia(imagine).get.parseado
     AudioPlayer.reproducir(miMelodia)
   }
+  "Take on Me" - {
+    val takeOnMe = "4A1/8 4A1/8 4F1/8 4D1/8 4D1/8 4G1/8 4G1/8 4G1/8 4B1/4 5C1/8 5D1/8 5C1/8 5C1/8 5C1/8 4G1/8 4F1/8 4A1/8 4A1/8 4A1/8 4G1/8 4G1/8 4A1/8 4G1/8"
+    val miMelodia = melodia(takeOnMe).get.parseado
+    AudioPlayer.reproducir(miMelodia)
+  }
 }
