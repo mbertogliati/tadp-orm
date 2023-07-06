@@ -3,7 +3,7 @@ object Musiquita{
   import EjemplosParser._
 
   val figuraSinPuntillo : Parser[Figura] = string("1/1").const(Redonda) <|> string("1/2").const(Blanca) <|> string("1/4").const(Negra) <|> string("1/8").const(Corchea) <|> string("1/16").const(SemiCorchea)
-  val puntillo : Parser[Figura => ConPuntillo]  = char('.').const(ConPuntillo(_))
+  val puntillo : Parser[Figura => ConPuntillo]  = char('.').const(ConPuntillo)
   val figura: Parser[Figura] = (figuraSinPuntillo <> puntillo.opt).map({
     case (figura,puntillo) => puntillo.getOrElse({figura: Figura => figura})(figura)})
 
