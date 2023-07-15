@@ -1,6 +1,6 @@
 object Musiquita{
   import Musica._
-  import EjemplosParser._
+  import Parser._
 
   val figuraSinPuntillo : Parser[Figura] = string("1/1").const(Redonda) <|> string("1/2").const(Blanca) <|> string("1/4").const(Negra) <|> string("1/8").const(Corchea) <|> string("1/16").const(SemiCorchea)
   val puntillo : Parser[Figura => ConPuntillo]  = char('.').const(ConPuntillo)
