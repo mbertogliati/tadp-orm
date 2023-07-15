@@ -2,7 +2,7 @@ import org.scalatest.matchers.should.Matchers._
 import org.scalatest.freespec.AnyFreeSpec
 
 import scala.util.{Failure, Success}
-import EjemplosParser._
+import Parser._
 
 
 class ProjectSpec extends AnyFreeSpec {
@@ -14,7 +14,7 @@ class ProjectSpec extends AnyFreeSpec {
       "tiene exito cuando la cadena empieza con cualquier caracter caracter" in {
         val resultadoParser = anyChar("hola")
         resultadoParser shouldBe a[Success[_]]
-        resultadoParser.get shouldBe ResultadoParser('h', "ola")
+        resultadoParser.get shouldBe ('h', "ola")
       }
       "falla cuando la cadena esta vacía" in {
         val resultadoParser = anyChar("")
@@ -27,7 +27,7 @@ class ProjectSpec extends AnyFreeSpec {
       "tiene exito cuando la cadena empieza con dado caracter" in {
         val resultadoParser = char('h')("hola")
         resultadoParser shouldBe a[Success[_]]
-        resultadoParser.get shouldBe ResultadoParser('h', "ola")
+        resultadoParser.get shouldBe ('h', "ola")
       }
       "falla cuando la cadena esta vacía" in {
         val charH = char('h')
@@ -39,7 +39,7 @@ class ProjectSpec extends AnyFreeSpec {
       "tiene exito cuando la cadena no es vacia" in {
         val resultadoParser = void("hola")
         resultadoParser shouldBe a[Success[_]]
-        resultadoParser.get shouldBe ResultadoParser((), "hola")
+        resultadoParser.get shouldBe ((), "hola")
       }
       "falla cuando la cadena es vacia" in {
         val resultadoParser = void("")
@@ -51,7 +51,7 @@ class ProjectSpec extends AnyFreeSpec {
       "tiene exito cuando la cadena empieza con una letra" in {
         val resultadoParser = letter("hola")
         resultadoParser shouldBe a[Success[_]]
-        resultadoParser.get shouldBe ResultadoParser('h', "ola")
+        resultadoParser.get shouldBe ('h', "ola")
       }
       "falla cuando la cadena no empieza con una letra" in {
         val resultadoParser = letter("123")
@@ -63,7 +63,7 @@ class ProjectSpec extends AnyFreeSpec {
       "tiene exito cuando la cadena comienza con un número" in {
         val resultadoParser = digit("8as21as")
         resultadoParser shouldBe a[Success[_]]
-        resultadoParser.get shouldBe ResultadoParser('8', "as21as")
+        resultadoParser.get shouldBe ('8', "as21as")
       }
       "falla cuando la cadena no es un número" in {
         val resultadoParser = digit("asd")
@@ -94,7 +94,7 @@ class ProjectSpec extends AnyFreeSpec {
       "tiene exito cuando la cadena comienza con el string indicado" in {
         val resultadoParser = string("hola")("hola mundo!")
         resultadoParser shouldBe a[Success[_]]
-        resultadoParser.get shouldBe ResultadoParser("hola", " mundo!")
+        resultadoParser.get shouldBe ("hola", " mundo!")
       }
       "falla cuando la cadena no puede matchear el string indicado por completo" in {
         val resultadoParser = string("hola")("holgado")
@@ -111,9 +111,9 @@ class ProjectSpec extends AnyFreeSpec {
         val resultadoParser2 = aob("bellota")
 
         resultadoParser1 shouldBe a[Success[_]]
-        resultadoParser1.get shouldBe ResultadoParser('a', "rbol")
+        resultadoParser1.get shouldBe ('a', "rbol")
         resultadoParser2 shouldBe a[Success[_]]
-        resultadoParser2.get shouldBe ResultadoParser('b', "ellota")
+        resultadoParser2.get shouldBe ('b', "ellota")
       }
       "falla cuando no puede matchear con ningun parser" in {
         val aob = char('a') <|> char('b')
@@ -129,7 +129,7 @@ class ProjectSpec extends AnyFreeSpec {
         val resultadoParser = holaMundo("holamundo!")
 
         resultadoParser shouldBe a[Success[_]]
-        resultadoParser.get shouldBe ResultadoParser(("hola","mundo"), "!")
+        resultadoParser.get shouldBe (("hola","mundo"), "!")
       }
       "falla cuando no puede matchear con ambos parsers a la vez" in {
         val holaMundo = string("hola") <> string("mundo")
@@ -145,7 +145,7 @@ class ProjectSpec extends AnyFreeSpec {
         val resultadoParser = holaMundo("holamundo!")
 
         resultadoParser shouldBe a[Success[_]]
-        resultadoParser.get shouldBe ResultadoParser("mundo", "!")
+        resultadoParser.get shouldBe ("mundo", "!")
       }
     }
 
@@ -155,7 +155,7 @@ class ProjectSpec extends AnyFreeSpec {
         val resultadoParser = holaMundo("holamundo!")
 
         resultadoParser shouldBe a[Success[_]]
-        resultadoParser.get shouldBe ResultadoParser("hola", "!")
+        resultadoParser.get shouldBe ("hola", "!")
       }
     }
   }
@@ -167,7 +167,7 @@ class ProjectSpec extends AnyFreeSpec {
         val resultadoParser = holaMundo("hola")
 
         resultadoParser shouldBe a[Success[_]]
-        resultadoParser.get shouldBe ResultadoParser("hola", "")
+        resultadoParser.get shouldBe ("hola", "")
       }
       "falla cuando no se cumple la condicion" in {
         val holaMundo = string("hola").satisfies(s => s.length == 5)
@@ -183,14 +183,14 @@ class ProjectSpec extends AnyFreeSpec {
         val resultadoParser = hola("hola!")
 
         resultadoParser shouldBe a[Success[_]]
-        resultadoParser.get shouldBe ResultadoParser("hola", "!")
+        resultadoParser.get shouldBe ("hola", "!")
       }
       "funciona aunque no funcione el parser original pero no consume caracteres" in {
         val hola = string("hola").opt
         val resultadoParser = hola("123")
 
         resultadoParser shouldBe a[Success[_]]
-        resultadoParser.get shouldBe ResultadoParser(None, "123")
+        resultadoParser.get shouldBe (None, "123")
       }
     }
 
@@ -201,9 +201,9 @@ class ProjectSpec extends AnyFreeSpec {
         val resultadoParser2 = hola("!")
 
         resultadoParser1 shouldBe a[Success[_]]
-        resultadoParser1.get shouldBe ResultadoParser(List("hola","hola","hola"), "!")
+        resultadoParser1.get shouldBe (List("hola","hola","hola"), "!")
         resultadoParser2 shouldBe a[Success[_]]
-        resultadoParser2.get shouldBe ResultadoParser(List(), "!")
+        resultadoParser2.get shouldBe (List(), "!")
       }
     }
 
@@ -213,7 +213,7 @@ class ProjectSpec extends AnyFreeSpec {
         val resultadoParser = hola("holaholahola!")
 
         resultadoParser shouldBe a[Success[_]]
-        resultadoParser.get shouldBe ResultadoParser(List("hola", "hola", "hola"), "!")
+        resultadoParser.get shouldBe (List("hola", "hola", "hola"), "!")
       }
       "falla si no puede aplicar el parser al menos una vez" in {
         val hola = string("hola").+
@@ -230,7 +230,7 @@ class ProjectSpec extends AnyFreeSpec {
         val resultadoParser = parserSeparador("12-34-56!")
 
         resultadoParser shouldBe a[Success[_]]
-        resultadoParser.get shouldBe ResultadoParser(List(12,34,56), "!")
+        resultadoParser.get shouldBe (List(12,34,56), "!")
       }
       "no falla si no matchea el separador" in {
         val hola = digit.sepBy(char('-'))
@@ -252,7 +252,7 @@ class ProjectSpec extends AnyFreeSpec {
         val resultadoParser = trueParser("true!")
 
         resultadoParser shouldBe a[Success[_]]
-        resultadoParser.get shouldBe ResultadoParser(true, "!")
+        resultadoParser.get shouldBe (true, "!")
       }
       "falla si falla el parser original" in {
         val trueParser = string("true").const(true)
@@ -271,7 +271,7 @@ class ProjectSpec extends AnyFreeSpec {
         val resultadoParser = personaParser("Lionel Messi!")
 
         resultadoParser shouldBe a[Success[_]]
-        resultadoParser.get shouldBe ResultadoParser(Persona("Lionel","Messi"),"!")
+        resultadoParser.get shouldBe (Persona("Lionel","Messi"),"!")
       }
     }
   }
