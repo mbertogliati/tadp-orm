@@ -1,9 +1,9 @@
 describe Prueba do
-  let(:prueba) { Prueba.new }
+  let(:person) { Person.new }
 
-  describe '#materia' do
-    it 'debería pasar este test' do
-      expect(prueba.materia).to be :tadp
+  describe 'Person' do
+    it 'Person es una clase persistible' do
+      expect(person.class.ancestor?(Persistible)).to be true
     end
   end
 end
